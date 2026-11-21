@@ -260,6 +260,33 @@ progress::-webkit-progress-value{background:var(--accent)}
           </div>
           <p class="muted small" style="margin:8px 0 0">调试桥：9421 / 62000 · 业务源码、worker、插件及媒体能力仍按实际兼容情况使用。</p>
         </div>
+        <div class="card" style="margin-top:12px">
+          <h2 class="cardTitle">导出小程序包（任意 AppID）</h2>
+          <p class="muted small" style="margin:-4px 0 10px">复用 wxapkg-dump 授权会话，从应用宝远程服务下载完整 wxapkg 与可导入 DevTools 的工程；无需先在本机打开小程序。</p>
+          <div class="row">
+            <input class="grow" id="exportAppid" placeholder="wx 开头的 18 位 AppID（或填下方原始 ID）">
+            <input id="exportUsername" placeholder="原始 ID gh_…（与 AppID 二选一）" style="width:210px">
+          </div>
+          <div class="row" style="margin-top:8px">
+            <span class="muted small">导出目录</span>
+            <input class="grow" id="exportDir" placeholder="留空使用默认导出目录">
+            <button id="saveExportDir" title="保存为默认导出目录">保存目录</button>
+            <button id="pickExportDir" title="选择目录">浏览…</button>
+          </div>
+          <p class="muted small" style="margin:5px 0 10px">当前导出目录：<span id="exportDirCurrent" class="pill">读取中…</span></p>
+          <div class="row" style="margin-bottom:8px">
+            <label class="muted small">版本：<select id="exportVersionType"><option value="0">正式版</option><option value="1">体验版</option><option value="2">开发版</option><option value="999">预览版</option></select></label>
+            <input id="exportVersion" placeholder="版本号（可选）" style="width:120px">
+            <label class="check"><input type="checkbox" id="exportUnpack" checked>解包为工程</label>
+            <label class="check"><input type="checkbox" id="exportAll">全量资源包</label>
+            <label class="check"><input type="checkbox" id="exportBeautify">美化代码</label>
+          </div>
+          <div class="row">
+            <button class="primary" id="exportBtn">导出此小程序包</button>
+            <span class="muted small" id="exportHint">依赖 wxapkg-dump 授权；未登录请到“扫码与账号”。</span>
+          </div>
+          <pre class="schema" id="exportResult" style="margin-top:10px">导出结果将显示在这里…</pre>
+        </div>
       </section>
 
       <section class="page" id="page-logs">
@@ -502,6 +529,19 @@ function renderTools() {
   $('toolCount').textContent = `显示 ${rows.length} / 共 ${state.tools.length} 个工具 · 已启用 ${state.tools.filter(t => t.enabled).length}`;
 }
 
+function renderDumpStatus(st) {
+  const dir = $('exportDirCurrent');
+  if (!st || st.error) { dir.textContent = '导出服务未就绪' + (st && st.error ? '：' + st.error : ''); return; }
+  dir.textContent = st.export_dir || '（未配置）';
+  $('exportDir').value = st.export_dir || '';
+  const online = st.online === true;
+  $('exportHint').textContent = online ? '授权有效，可直接导出。' : '未登录：请到“扫码与账号”完成授权。';
+}
+async function refreshDumpStatus() {
+  if (!api || !api.DumpStatus) return;
+  try { renderDumpStatus(await api.DumpStatus()); } catch (e) { $('exportDirCurrent').textContent = '读取失败：' + e; }
+}
+
 function renderResults(payload) {
   const body = $('resultBody');
   if (payload.error || payload.grade === 'blocked') {
@@ -551,6 +591,7 @@ async function refresh(silent) {
     $('mcpBind').value = config.mcp_bind || '127.0.0.1';
     $('globalSwitch').checked = config.mcp_enabled !== false;
     $('hideWindow').checked = !!config.hide_miniapp_window;
+    refreshDumpStatus();
   } catch (error) {
     if (gen === generation) {
       setSide('bad', '状态同步失败');
@@ -878,6 +919,42 @@ $('launchBtn').addEventListener('click', async () => {
   refresh();
 });
 $('gotoSessions').addEventListener('click', () => nav('overview'));
+
+$('saveExportDir').addEventListener('click', async () => {
+  try { renderDumpStatus(await api.SaveExportDir($('exportDir').value.trim())); status('导出目录已保存', 'ok'); }
+  catch (e) { status('保存导出目录失败：' + e, 'bad'); }
+});
+$('pickExportDir').addEventListener('click', async () => {
+  try {
+    const picked = await api.PickExportDir();
+    if (picked) { $('exportDir').value = picked; status('已选择目录，请点“保存目录”', 'busy'); }
+  } catch (e) { status('选择目录失败：' + e, 'bad'); }
+});
+$('exportBtn').addEventListener('click', async () => {
+  const appid = $('exportAppid').value.trim();
+  const username = $('exportUsername').value.trim();
+  if (!appid && !username) { status('请填写 AppID 或原始 ID'); return; }
+  if (appid && !/^wx[0-9a-f]{16}$/.test(appid)) { status('AppID 格式应为 wx + 16 位十六进制'); return; }
+  $('exportBtn').disabled = true;
+  const out = $('exportResult');
+  out.textContent = '正在导出（可能需要数十秒）…';
+  status('正在导出小程序包…', 'busy');
+  try {
+    const r = await api.ExportPackage(appid, username, $('exportDir').value.trim(),
+      parseInt($('exportVersionType').value, 10) || 0, $('exportVersion').value.trim(),
+      $('exportAll').checked, $('exportUnpack').checked, $('exportBeautify').checked);
+    out.textContent = JSON.stringify(r, null, 2);
+    status(r && r.ok ? '导出完成' : ('导出未完成：' + ((r && r.reason) || '未知原因')), r && r.ok ? 'ok' : 'bad');
+    logAppend('导出 ' + (appid || username) + '：' + (r && r.ok ? 'ok' : (r && r.reason || 'failed')));
+    refreshDumpStatus();
+  } catch (e) {
+    out.textContent = '导出失败：' + e;
+    status('导出失败：' + e, 'bad');
+    logAppend('导出失败：' + e);
+  }
+  $('exportBtn').disabled = false;
+});
+
 $('clearLogs').addEventListener('click', async () => {
   await api.ClearLogs();
   $('logText').textContent = '';

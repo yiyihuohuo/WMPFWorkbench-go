@@ -294,6 +294,69 @@ func (b *Backend) SavePorts(loginPort, mcpPort int, bind string) (map[string]any
 	return b.Config(), nil
 }
 
+// DumpStatus reports the wxapkg-dump sidecar state and the effective export
+// directory. It is used by the search page's export card.
+func (b *Backend) DumpStatus() (any, error) {
+	out, err := b.svc.Call(b.ctx, "login", map[string]any{"action": "status"})
+	if err != nil {
+		b.logErr("读取导出服务状态", err, "")
+		return out, err
+	}
+	return out, nil
+}
+
+// SaveExportDir persists the user-configured package export directory. An
+// empty value clears the override and falls back to the default.
+func (b *Backend) SaveExportDir(dir string) (any, error) {
+	dir = strings.TrimSpace(dir)
+	if _, err := b.svc.Config.Update(b.ctx, map[string]any{"dump_export_dir": dir}); err != nil {
+		return nil, err
+	}
+	if dir == "" {
+		b.logf("导出目录已恢复默认")
+	} else {
+		b.logf("导出目录已保存：%s", dir)
+	}
+	return b.DumpStatus()
+}
+
+// PickExportDir opens a native folder picker so the export directory can be
+// configured without typing a path.
+func (b *Backend) PickExportDir() (string, error) {
+	path, err := runtime.OpenDirectoryDialog(b.ctx, runtime.OpenDialogOptions{Title: "选择小程序包导出目录"})
+	if err != nil || path == "" {
+		return "", err
+	}
+	return path, nil
+}
+
+// ExportPackage exports an arbitrary mini program's packages via the
+// wxapkg-dump sidecar. Args mirror the export_mini_program MCP tool.
+func (b *Backend) ExportPackage(appid, username, outDir string, versionType int, version string, allPackages, unpack, beautify bool) (any, error) {
+	ctxInfo := "appid=" + appid
+	if appid == "" { ctxInfo = "username=" + username }
+	b.logf("导出小程序包：%s", ctxInfo)
+	args := map[string]any{
+		"appid": appid, "username": username, "out_dir": outDir,
+		"version_type": versionType, "version": version,
+		"all_packages": allPackages, "unpack": unpack, "beautify": beautify,
+		"concurrency": 3,
+	}
+	result, err := b.svc.Call(b.ctx, "export_mini_program", args)
+	if err != nil {
+		b.logErr("导出小程序包", err, ctxInfo)
+		return nil, err
+	}
+	if row, ok := result.(map[string]any); ok {
+		if row["ok"] == true {
+			b.logf("导出完成：%s → %v", ctxInfo, row["out_dir"])
+		} else {
+			b.logf("导出失败：%v", row["reason"])
+		}
+	}
+	return result, nil
+}
+
 // LoginStatus returns masked account information plus service state. Failures
 // are logged in full so "logged in but no accounts" is diagnosable from the GUI.
 func (b *Backend) LoginStatus() (any, error) {
