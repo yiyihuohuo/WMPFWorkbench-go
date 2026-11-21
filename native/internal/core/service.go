@@ -20,6 +20,7 @@ import (
 	"wmpfworkbench/internal/catalog"
 	"wmpfworkbench/internal/cdp"
 	"wmpfworkbench/internal/config"
+	"wmpfworkbench/internal/dumpclient"
 	"wmpfworkbench/internal/hostruntime"
 	"wmpfworkbench/internal/loginsvc"
 	"wmpfworkbench/internal/netlog"
@@ -41,6 +42,7 @@ type Service struct {
 	Online     *catalog.Online
 	Jobs       *wxapkg.Manager
 	LoginSvc   *loginsvc.Manager
+	Dump       *dumpclient.Client
 	Runtime    Runtime
 	mu         sync.Mutex
 	connection sync.Mutex
@@ -58,7 +60,19 @@ func New(p app.Paths) *Service {
 	if v := os.Getenv("WMPF_WXAPKG_TOOL"); v != "" {
 		tool = v
 	}
-	return &Service{Paths: p, Config: cfg, Account: a, Local: catalog.NewLocal(p), Online: catalog.NewOnline(a), Jobs: wxapkg.New(p, tool), LoginSvc: loginsvc.New(p, cfg), Runtime: hostruntime.New(p, cfg, a)}
+	// wxapkg-dump sidecar for login + arbitrary package export. Values are read
+	// at construction; runtime changes (ports/paths) take effect after restart.
+	cv, _ := cfg.Read()
+	dumpPort := config.Int(cv, "dump_port")
+	if dumpPort < 1 || dumpPort > 65535 { dumpPort = 8788 }
+	dump := dumpclient.New(dumpclient.Options{
+		BaseURL:   fmt.Sprintf("http://127.0.0.1:%d", dumpPort),
+		ExePath:   config.String(cv, "dump_exe"),
+		Workspace: config.String(cv, "dump_workspace"),
+		AdminKey:  config.String(cv, "dump_admin_key"),
+		AutoStart: true,
+	})
+	return &Service{Paths: p, Config: cfg, Account: a, Local: catalog.NewLocal(p), Online: catalog.NewOnline(a), Jobs: wxapkg.New(p, tool), LoginSvc: loginsvc.New(p, cfg), Dump: dump, Runtime: hostruntime.New(p, cfg, a)}
 }
 func (s *Service) Close() {
 	s.mu.Lock()
@@ -151,6 +165,10 @@ func (s *Service) Call(ctx context.Context, name string, args map[string]any) (a
 		case "cancel":
 			return s.Jobs.Cancel(str(args, "task_id")), nil
 		}
+	case "export_mini_program":
+		return s.exportPackage(ctx, args)
+	case "login":
+		return s.loginViaDump(ctx, args)
 	case "netlog":
 		if str(args, "action") == "discover" {
 			roots := []string{}

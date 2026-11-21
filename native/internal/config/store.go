@@ -24,6 +24,8 @@ func Defaults() Values {
 		"mcp_port": 18767, "login_port": 18766, "mcp_token": "", "mcp_enabled": true,
 		"mcp_bind": "127.0.0.1",
 		"auth_mode": "managed", "auto_start": true, "hide_miniapp_window": false, "tool_catalog_version": 3,
+		// wxapkg-dump sidecar: login + arbitrary mini-program package export.
+		"login_mode": "dump", "dump_port": 8788, "dump_export_dir": "", "dump_exe": "", "dump_workspace": "", "dump_admin_key": "",
 	}
 }
 

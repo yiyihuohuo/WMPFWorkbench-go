@@ -413,5 +413,95 @@
       "title": "netlogArguments",
       "type": "object"
     }
+  },
+  {
+    "name": "export_mini_program",
+    "description": "导出任意小程序的完整包（wxapkg）与可导入 DevTools 的工程：通过本地 wxapkg-dump Rust sidecar 的 HTTP API 从应用宝远程服务按 appid 或 username 下载，可选解包(unpack)/美化(beautify)/全量资源包(all_packages)。\n\n依赖一次授权登录（用 login 工具的 action=qr/check 完成；凭证只留在 wxapkg-dump，不经过本工具）。导出目录默认取配置的 dump_export_dir（<root>/out/wxapkg-export），也可用 out_dir 显式指定绝对路径；结果回传 out_dir/outDir 与逐包清单。\nversion_type: 0 正式(默认)、1 体验、2 开发、999 预览；version 为空取最新。",
+    "inputSchema": {
+      "type": "object",
+      "title": "export_mini_programArguments",
+      "properties": {
+        "appid": {
+          "type": "string",
+          "default": "",
+          "title": "Appid",
+          "description": "wx + 16 位十六进制"
+        },
+        "username": {
+          "type": "string",
+          "default": "",
+          "title": "Username",
+          "description": "gh_… 原始 id，与 appid 二选一"
+        },
+        "out_dir": {
+          "type": "string",
+          "default": "",
+          "title": "Out Dir",
+          "description": "可选，绝对路径；留空用配置的导出目录"
+        },
+        "version_type": {
+          "type": "integer",
+          "default": 0,
+          "enum": [
+            0,
+            1,
+            2,
+            999
+          ],
+          "title": "Version Type"
+        },
+        "version": {
+          "type": "string",
+          "default": "",
+          "title": "Version"
+        },
+        "all_packages": {
+          "type": "boolean",
+          "default": false,
+          "title": "All Packages"
+        },
+        "concurrency": {
+          "type": "integer",
+          "default": 3,
+          "title": "Concurrency"
+        },
+        "unpack": {
+          "type": "boolean",
+          "default": true,
+          "title": "Unpack"
+        },
+        "beautify": {
+          "type": "boolean",
+          "default": false,
+          "title": "Beautify"
+        }
+      }
+    }
+  },
+  {
+    "name": "login",
+    "description": "登录/账号状态，复用 wxapkg-dump 的授权链（替代旧的内嵌登录服务）。\naction=status：当前账号是否在线、openid、导出目录与服务状态。\naction=qr：发码，返回 session_id / qr_content / qr_image(data URI) / expires_in。\naction=check：带 session_id 轮询，状态 waiting/scanned/confirmed/expired/cancelled；confirmed 时返回 nickname/openid 并自动设为当前账号。\n凭证始终留在 wxapkg-dump（0600 存储），本工具只回传公开字段，不泄露 token。",
+    "inputSchema": {
+      "type": "object",
+      "title": "loginArguments",
+      "properties": {
+        "action": {
+          "type": "string",
+          "default": "status",
+          "enum": [
+            "status",
+            "qr",
+            "check"
+          ],
+          "title": "Action"
+        },
+        "session_id": {
+          "type": "string",
+          "default": "",
+          "title": "Session Id",
+          "description": "check 时必填，来自 qr"
+        }
+      }
+    }
   }
 ]

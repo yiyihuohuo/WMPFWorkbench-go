@@ -22,13 +22,13 @@ func fixtureBackend(t *testing.T) *Backend {
 	return &Backend{ctx: context.Background(), svc: svc, skipMCP: true}
 }
 
-// The GUI must expose the same frozen 16 tools and persist toggles through the
+// The GUI must expose the same frozen tools and persist toggles through the
 // shared configuration, not through a frontend-only list.
 func TestToolsTogglePersists(t *testing.T) {
 	b := fixtureBackend(t)
 	tools := b.Tools()
-	if len(tools) != 16 {
-		t.Fatal("expected 16 tools", len(tools))
+	if len(tools) != 18 {
+		t.Fatal("expected 18 tools", len(tools))
 	}
 	after, err := b.SetTool("cdp_events", false)
 	if err != nil {
