@@ -15,3 +15,6 @@ __pycache__/
 /artifacts/
 /vendor/KillWxapkg/.git/
 native/internal/bundle/bin/*.exe
+
+# local-only note (must NOT be pushed to GitHub)
+/_LOCAL_GITHUB_NOTE.md
