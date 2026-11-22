@@ -210,8 +210,8 @@ progress::-webkit-progress-value{background:var(--accent)}
               <div class="qrBox" id="avatar" style="width:62px;height:62px;margin:0">微</div>
               <div class="grow"><div id="accountDetail">当前账号：未选择</div></div>
             </div>
-            <table style="margin-top:8px"><thead><tr><th>昵称 / 别名</th><th>账号状态</th><th>最近检查</th></tr></thead>
-              <tbody id="accountBody"><tr><td colspan="3" class="muted">暂无账号</td></tr></tbody></table>
+            <table style="margin-top:8px"><thead><tr><th>昵称 / 别名</th><th>账号状态</th><th>最近检查</th><th>操作</th></tr></thead>
+              <tbody id="accountBody"><tr><td colspan="4" class="muted">暂无账号</td></tr></tbody></table>
             <div class="row" style="margin-top:8px">
               <button id="checkAccount">检查当前账号</button>
               <button id="refreshAccounts">刷新账号列表</button>
@@ -478,7 +478,7 @@ function renderAccounts(login) {
   }
   const body = $('accountBody');
   if (!state.accounts.length) {
-    body.innerHTML = '<tr><td colspan="3" class="muted">暂无账号</td></tr>';
+    body.innerHTML = '<tr><td colspan="4" class="muted">暂无账号</td></tr>';
   } else {
     body.innerHTML = '';
     state.accounts.forEach(account => {
@@ -488,7 +488,20 @@ function renderAccounts(login) {
       // prefix instead so the row is identifiable rather than looking empty.
       let label = account.nickname || account.alias || '';
       if (!label || label === '无') label = '账号 ' + String(account.openid || account.id || '').slice(0, 8);
-      tr.innerHTML = `<td>${esc(label)}</td><td>${esc(account.status || 'unknown')}</td><td>${checked}</td>`;
+      const openid = account.openid || account.id || '';
+      const badge = account.current ? ' · 当前' : '';
+      tr.innerHTML = `<td>${esc(label)}${badge}</td><td>${esc(account.status || 'unknown')}</td><td>${checked}</td>` +
+        `<td><button data-act="select" style="padding:2px 8px">切换</button> <button data-act="delete" style="padding:2px 8px">删除</button></td>`;
+      tr.querySelector('[data-act="select"]').addEventListener('click', async () => {
+        try { await api.SelectAccount(openid); logAppend('已切换账号：' + label); status('已切换账号', 'ok'); }
+        catch (e) { logAppend('切换失败：' + e); status('切换失败：' + e, 'bad'); }
+        await refresh(true);
+      });
+      tr.querySelector('[data-act="delete"]').addEventListener('click', async () => {
+        try { await api.DeleteAccount(openid); logAppend('已删除账号：' + label); status('已删除账号', 'ok'); }
+        catch (e) { logAppend('删除失败：' + e); status('删除失败：' + e, 'bad'); }
+        await refresh(true);
+      });
       body.appendChild(tr);
     });
   }

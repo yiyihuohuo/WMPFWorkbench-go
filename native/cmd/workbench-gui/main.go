@@ -418,11 +418,32 @@ func (b *Backend) RefreshAccount() (any, error) {
 }
 
 func (b *Backend) SelectAccount(ref string) error {
+	// Switch in the sidecar (multi-account) so subsequent launches use the new
+	// account's session, then keep the local config mirror in sync.
+	if b.svc.Dump != nil {
+		if err := b.svc.Dump.SelectAccount(b.ctx, ref); err != nil {
+			b.logErr("切换当前账号", err, "openid="+ref)
+			return err
+		}
+	}
 	if _, err := b.svc.Config.Update(b.ctx, map[string]any{"selected_account": ref}); err != nil {
 		return err
 	}
 	b.logf("已切换当前账号")
 	return nil
+}
+
+// DeleteAccount removes one remembered account from the sidecar.
+func (b *Backend) DeleteAccount(openid string) (any, error) {
+	if b.svc.Dump == nil {
+		return map[string]any{"ok": false, "reason": "授权服务未初始化"}, nil
+	}
+	if err := b.svc.Dump.DeleteAccount(b.ctx, openid); err != nil {
+		b.logErr("删除账号", err, "openid="+openid)
+		return nil, err
+	}
+	b.logf("已删除账号")
+	return map[string]any{"ok": true, "openid": openid}, nil
 }
 
 // Avatar returns the account's profile image URL from the authorization

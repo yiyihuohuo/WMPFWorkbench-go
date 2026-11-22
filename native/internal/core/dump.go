@@ -188,24 +188,33 @@ func (s *Service) dumpAccountForStatus(ctx context.Context) (any, error) {
 	}
 	st, err := s.Dump.Status(ctx)
 	if err != nil { return nil, err }
-	accounts := []map[string]any{}
-	if st.Account != nil && st.Account.OpenID != "" {
-		account := map[string]any{
-			"id": st.Account.OpenID, "openid": st.Account.OpenID,
-			"nickname": st.Account.NickName, "avatar": st.Account.Avatar,
-			"status": st.Account.Status, "online": st.Account.Online,
+	s.mu.Lock()
+	checked := s.lastAccountCheck
+	s.mu.Unlock()
+	view := func(a dumpclient.AccountView) map[string]any {
+		row := map[string]any{
+			"id": a.OpenID, "openid": a.OpenID,
+			"nickname": a.NickName, "avatar": a.Avatar,
+			"status": a.Status, "online": a.Online, "current": a.Current,
 		}
 		// The GUI account table renders last_checked_at. Prefer the explicit
 		// manual-check timestamp; fall back to the sidecar's token refresh time.
-		s.mu.Lock()
-		checked := s.lastAccountCheck
-		s.mu.Unlock()
 		if !checked.IsZero() {
-			account["last_checked_at"] = checked.Unix()
-		} else if st.Account.LastRefresh > 0 {
-			account["last_checked_at"] = st.Account.LastRefresh
+			row["last_checked_at"] = checked.Unix()
+		} else if a.LastRefresh > 0 {
+			row["last_checked_at"] = a.LastRefresh
 		}
-		accounts = append(accounts, account)
+		return row
+	}
+	accounts := []map[string]any{}
+	if len(st.Accounts) > 0 {
+		for _, a := range st.Accounts {
+			if a.OpenID != "" {
+				accounts = append(accounts, view(a))
+			}
+		}
+	} else if st.Account != nil && st.Account.OpenID != "" {
+		accounts = append(accounts, view(*st.Account))
 	}
 	values, _ := s.Config.Read()
 	return map[string]any{"accounts": accounts, "selected_account": config.String(values, "selected_account"),

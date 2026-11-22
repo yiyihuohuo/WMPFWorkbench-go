@@ -14,6 +14,7 @@ import (
 	"regexp"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -74,19 +75,25 @@ type Envelope struct {
 	} `json:"error"`
 }
 
+// AccountView is one account as reported by the sidecar's status/accounts API.
+type AccountView struct {
+	NickName    string `json:"nickName"`
+	Avatar      string `json:"avatar"`
+	Status      string `json:"status"`
+	StatusEn    string `json:"statusEn"`
+	Online      bool   `json:"online"`
+	OpenID      string `json:"openid"`
+	LastRefresh int64  `json:"lastRefreshAt"`
+	UpdatedAt   int64  `json:"updatedAt"`
+	Current     bool   `json:"current"`
+}
+
 // Status is the public account state returned by /api/ilink/status.
 type Status struct {
-	Implementation string `json:"implementation"`
-	Account        *struct {
-		NickName     string `json:"nickName"`
-		Avatar       string `json:"avatar"`
-		Status       string `json:"status"`
-		StatusEn     string `json:"statusEn"`
-		Online       bool   `json:"online"`
-		OpenID       string `json:"openid"`
-		LastRefresh  int64  `json:"lastRefreshAt"`
-	} `json:"account"`
-	Warnings []string `json:"warnings"`
+	Implementation string        `json:"implementation"`
+	Account        *AccountView  `json:"account"`
+	Accounts       []AccountView `json:"accounts"`
+	Warnings       []string      `json:"warnings"`
 }
 
 // LoginQR is the response of /api/ilink/login/qr.
@@ -283,6 +290,27 @@ func (c *Client) CheckQR(ctx context.Context, sessionID string) (LoginCheck, err
 	var s LoginCheck
 	err := c.doTimeout(ctx, http.MethodPost, loginCheck, map[string]any{"sessionId": sessionID}, &s, 60*time.Second)
 	return s, err
+}
+
+// Accounts lists every remembered account from the sidecar.
+func (c *Client) Accounts(ctx context.Context) ([]AccountView, error) {
+	var out struct {
+		Accounts []AccountView `json:"accounts"`
+	}
+	if err := c.do(ctx, http.MethodGet, "/api/ilink/accounts", nil, &out); err != nil {
+		return nil, err
+	}
+	return out.Accounts, nil
+}
+
+// SelectAccount makes a remembered account current.
+func (c *Client) SelectAccount(ctx context.Context, openid string) error {
+	return c.do(ctx, http.MethodPost, "/api/ilink/account/select", map[string]any{"openid": openid}, nil)
+}
+
+// DeleteAccount removes one remembered account by openid.
+func (c *Client) DeleteAccount(ctx context.Context, openid string) error {
+	return c.do(ctx, http.MethodDelete, "/api/ilink/account/"+url.PathEscape(openid), nil, nil)
 }
 
 // Download exports a mini program's packages from the remote service.
