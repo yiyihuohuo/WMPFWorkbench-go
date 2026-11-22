@@ -22,6 +22,9 @@ func TestDumpModeSessionFromFile(t *testing.T) {
 	if s.Pairs["openid"] != "owTESTOPENID1234" || s.Pairs["logintype"] != "WX" {
 		t.Fatalf("pairs=%v", s.Pairs)
 	}
+	if s.Pairs["device_key"] != "default" {
+		t.Fatalf("device_key must default to 'default' (buffer mint), got %q", s.Pairs["device_key"])
+	}
 }
 
 func TestDumpModeRequestNoLegacyService(t *testing.T) {

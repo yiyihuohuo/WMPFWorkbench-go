@@ -95,6 +95,10 @@ func TestMintFreshFetchesTicketInsteadOfUsingCachedBuffer(t *testing.T) {
 			io.WriteString(w, `{"code":0,"encrypt_param":{"iv":"IV","data":"DATA","timestamp":"123","authtag":"TAG"}}`)
 		case "/pc_yyb_auth/pcyyb_get_wx_login_buffer_auth":
 			ticketFetches++
+			body, _ := io.ReadAll(r.Body)
+			if !bytes.Contains(body, []byte(`"mydevice"`)) {
+				t.Errorf("user_id must be device_key, not guid; body=%s", body)
+			}
 			io.WriteString(w, `{"code":0,"ext_info":{"list_s":{"login_buffer":{"value":["bmV3LXRpY2tldA=="]}}}}`)
 		default:
 			t.Errorf("unexpected request %s", r.URL.Path)
@@ -105,7 +109,7 @@ func TestMintFreshFetchesTicketInsteadOfUsingCachedBuffer(t *testing.T) {
 	client := New(nil)
 	client.Endpoint = srv.URL
 	client.Session = func(context.Context) (account.Session, error) {
-		return account.Session{Pairs: map[string]string{"guid": "guid"}, SDKToken: "sdk-token", SDKScope: "snsapi_runtime_pcsdk", LoginBuffer: "b2xkLXRpY2tldA=="}, nil
+		return account.Session{Pairs: map[string]string{"guid": "guid", "device_key": "mydevice"}, SDKToken: "sdk-token", SDKScope: "snsapi_runtime_pcsdk", LoginBuffer: "b2xkLXRpY2tldA=="}, nil
 	}
 	dest := filepath.Join(t.TempDir(), "inputs")
 	oldMeta, err := client.Mint(context.Background(), testID, "", filepath.Join(t.TempDir(), "old-inputs"))

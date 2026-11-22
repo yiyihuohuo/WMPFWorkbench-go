@@ -21,6 +21,7 @@ type dumpAccountFile struct {
 		Avatar   string `json:"avatar"`
 		State    string `json:"state"`
 		OpenID   string `json:"openid"`
+		Device   string `json:"device"` // device_key used to mint the login buffer (wxapkg-dump uses "default")
 		Session  struct {
 			LoginBuffer string `json:"login_buffer"`
 			ExpireTime  int64  `json:"expire_time"`
@@ -57,11 +58,16 @@ func readDumpAccount(cfg *config.Store) (map[string]any, map[string]any, error) 
 		return nil, nil, errors.New("授权账号未登录")
 	}
 	u := f.Account.Session.UAL
+	deviceKey := strings.TrimSpace(f.Account.Device)
+	if deviceKey == "" {
+		deviceKey = "default" // wxapkg-dump hardcodes this when minting the buffer
+	}
 	creds := map[string]any{
 		"openid": u.OpenID, "accesstoken": u.AccessToken, "refreshtoken": u.RefreshToken,
 		"logintype": u.LoginType, "scope": strings.Trim(u.Scope, "\""), "appid": "wxd44977328b36e647",
 		"nickname": f.Account.NickName, "expires_in": u.ExpiresIn,
 		"expires_at": float64(time.Now().Unix() + u.ExpiresIn),
+		"device_key": deviceKey,
 	}
 	pairs := map[string]string{}
 	for _, kv := range u.Cookies {
@@ -114,7 +120,7 @@ func (c *Client) dumpSession(ctx context.Context) (Session, error) {
 		k, v, ok := strings.Cut(strings.TrimSpace(part), "=")
 		if ok { pairs[k], _ = url.PathUnescape(v) }
 	}
-	for _, k := range []string{"openid", "accesstoken", "refreshtoken", "guid", "scope", "logintype"} {
+	for _, k := range []string{"openid", "accesstoken", "refreshtoken", "guid", "scope", "logintype", "device_key"} {
 		if v, ok := creds[k]; ok { pairs[k] = text(v) }
 	}
 	chunks := []string{}

@@ -139,7 +139,12 @@ func (c *Client) post(ctx context.Context, session account.Session, path string,
 	}
 	if code, ok := response["code"]; ok {
 		if integer(code) != 0 || text(code) != "0" {
-			return nil, errors.New("启动服务拒绝请求")
+			// Preserve the vendor code/message: callers previously saw only
+			// "启动服务拒绝请求" and could not tell a blocked appid from a
+			// stale ticket or a throttled guid.
+			msg := text(response["msg"])
+			if msg == "" { msg = text(response["message"]) }
+			return nil, fmt.Errorf("启动服务拒绝请求 (code=%v, path=%s, msg=%s)", text(code), path, msg)
 		}
 	}
 	return response, nil
@@ -210,7 +215,15 @@ func (c *Client) mint(ctx context.Context, id, entry, dest string, freshTicket b
 		if session.SDKToken == "" {
 			return nil, errors.New("PCSDK token 缺失")
 		}
-		res, err := c.post(ctx, session, "/pc_yyb_auth/pcyyb_get_wx_login_buffer_auth", map[string]any{"extInfo": map[string]any{"listS": map[string]any{"unionid": map[string]any{"value": []any{nil}}, "user_id": map[string]any{"value": []string{session.Pairs["guid"]}}, "access_token": map[string]any{"value": []string{session.SDKToken}}}, "listI": map[string]any{"user_type": map[string]any{"value": []int{1}}}}}, "pc_yyb_auth", "wgrdg373hy26ww2", "")
+		// The buffer endpoint's user_id is the *device key*, not the Ual-Access-Guid
+		// cookie (dump accounts have no guid). wxapkg-dump mints its buffer with
+		// the literal "default"; using an empty guid here made the call fail with
+		// code=-109 "invalid user id" on every -10 retry.
+		deviceKey := session.Pairs["device_key"]
+		if deviceKey == "" {
+			deviceKey = "default"
+		}
+		res, err := c.post(ctx, session, "/pc_yyb_auth/pcyyb_get_wx_login_buffer_auth", map[string]any{"extInfo": map[string]any{"listS": map[string]any{"unionid": map[string]any{"value": []any{nil}}, "user_id": map[string]any{"value": []string{deviceKey}}, "access_token": map[string]any{"value": []string{session.SDKToken}}}, "listI": map[string]any{"user_type": map[string]any{"value": []int{1}}}}}, "pc_yyb_auth", "wgrdg373hy26ww2", "")
 		if err != nil {
 			return nil, err
 		}
