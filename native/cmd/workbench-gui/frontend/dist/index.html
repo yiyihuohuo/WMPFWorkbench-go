@@ -340,7 +340,7 @@ progress::-webkit-progress-value{background:var(--accent)}
 const api = window.go?.main?.Backend;
 const $ = (id) => document.getElementById(id);
 const state = { tools: [], accounts: [], sessions: [], selectedSession: '', qr: null, qrState: 'idle', qrGen: 0, toolFilter: '', toolGroup: '全部分组', avatarRef: '', lastSide: '', frontLogs: [] };
-const QR_STATUS = { pending: '等待微信扫描…', scanned: '已扫码，请在手机上确认…', authorized: '已扫码，请在手机上确认…', confirmed: '登录成功', expired: '二维码已过期，请刷新', cancelled: '已取消', unknown: '状态未知' };
+const QR_STATUS = { pending: '等待微信扫描…', scanned: '已扫码，请在手机上确认…', authorized: '已扫码，请在手机上确认（确认后需换取凭证，可能需几十秒，请勿刷新）…', confirmed: '登录成功', expired: '二维码已过期，请刷新', cancelled: '已取消', unknown: '状态未知' };
 let generation = 0;
 
 function esc(v) { return String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
@@ -484,7 +484,11 @@ function renderAccounts(login) {
     state.accounts.forEach(account => {
       const tr = document.createElement('tr');
       const checked = account.last_checked_at ? new Date(account.last_checked_at * 1000).toLocaleTimeString() : '—';
-      tr.innerHTML = `<td>${esc(account.nickname || account.alias || '未命名')}</td><td>${esc(account.status || 'unknown')}</td><td>${checked}</td>`;
+      // WeChat sometimes reports the literal nickname "无"; show the openid
+      // prefix instead so the row is identifiable rather than looking empty.
+      let label = account.nickname || account.alias || '';
+      if (!label || label === '无') label = '账号 ' + String(account.openid || account.id || '').slice(0, 8);
+      tr.innerHTML = `<td>${esc(label)}</td><td>${esc(account.status || 'unknown')}</td><td>${checked}</td>`;
       body.appendChild(tr);
     });
   }
@@ -708,8 +712,14 @@ async function createQR() {
 
 async function pollQR(gen, session) {
   const box = $('qrBox');
+  // The sidecar's check is a long poll: WeChat blocks up to ~25s per call, and
+  // on confirm the sidecar synchronously exchanges tokens + ManualAuth before
+  // returning "confirmed" (tens of seconds). Polls are already serialized by
+  // the await; just avoid hammering with 1.2s gaps and show a clear "confirming"
+  // state so the wait is not mistaken for a stuck UI.
   while (gen === state.qrGen) {
-    await new Promise(r => setTimeout(r, 1200));
+    const scanned = state.qrState === 'scanned' || state.qrState === 'authorized';
+    await new Promise(r => setTimeout(r, scanned ? 1500 : 2000));
     if (gen !== state.qrGen) return;
     try {
       const result = await api.QRPoll(session);

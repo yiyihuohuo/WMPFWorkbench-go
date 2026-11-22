@@ -93,6 +93,14 @@ func TestLoginQRPollMapsScannedToAuthorized(t *testing.T) {
 	accounts := out.(map[string]any)["accounts"].([]map[string]any)
 	if len(accounts) != 1 { t.Fatalf("accounts=%v", accounts) }
 	if accounts[0]["last_checked_at"] != last {
-	t.Fatalf("last_checked_at not mapped: %v", accounts[0])
+		t.Fatalf("last_checked_at not mapped: %v", accounts[0])
 	}
+	// A manual check must move "最近检查" even though the sidecar's
+	// lastRefreshAt does not change on a plain status read.
+	stamp := s.MarkAccountChecked()
+	out, _ = s.dumpAccountForStatus(context.Background())
+	accounts = out.(map[string]any)["accounts"].([]map[string]any)
+	if accounts[0]["last_checked_at"] != stamp {
+		t.Fatalf("manual check did not update last_checked_at: %v (want %d)", accounts[0], stamp)
 	}
+}

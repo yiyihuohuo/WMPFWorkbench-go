@@ -50,6 +50,10 @@ type Service struct {
 	// lastQRIdentity caches the identity returned by the confirmed QR poll;
 	// the final confirm step must not re-poll (the session is consumed).
 	lastQRIdentity map[string]any
+	// lastAccountCheck records when the user explicitly checked the account.
+	// The sidecar's lastRefreshAt only changes on token refresh, not on a
+	// manual check, so the GUI's "最近检查" column needs its own timestamp.
+	lastAccountCheck time.Time
 	connection sync.Mutex
 	session    *cdp.Session
 }

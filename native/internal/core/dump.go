@@ -195,10 +195,14 @@ func (s *Service) dumpAccountForStatus(ctx context.Context) (any, error) {
 			"nickname": st.Account.NickName, "avatar": st.Account.Avatar,
 			"status": st.Account.Status, "online": st.Account.Online,
 		}
-		// The GUI account table renders last_checked_at; in dump mode the only
-		// freshness signal is the sidecar's lastRefreshAt. Surface it so the
-		// column shows a real time instead of "—".
-		if st.Account.LastRefresh > 0 {
+		// The GUI account table renders last_checked_at. Prefer the explicit
+		// manual-check timestamp; fall back to the sidecar's token refresh time.
+		s.mu.Lock()
+		checked := s.lastAccountCheck
+		s.mu.Unlock()
+		if !checked.IsZero() {
+			account["last_checked_at"] = checked.Unix()
+		} else if st.Account.LastRefresh > 0 {
 			account["last_checked_at"] = st.Account.LastRefresh
 		}
 		accounts = append(accounts, account)
@@ -207,5 +211,16 @@ func (s *Service) dumpAccountForStatus(ctx context.Context) (any, error) {
 	return map[string]any{"accounts": accounts, "selected_account": config.String(values, "selected_account"),
 		"login_service": map[string]any{"url": s.Dump.BaseURL(), "running": s.Dump.Reachable(ctx),
 			"healthy": s.Dump.Reachable(ctx)}}, nil
+}
+
+// MarkAccountChecked records a manual account check so dumpAccountForStatus
+// can show a real "最近检查" timestamp (sidecar lastRefreshAt never changes on
+// a plain status read).
+func (s *Service) MarkAccountChecked() int64 {
+	now := time.Now()
+	s.mu.Lock()
+	s.lastAccountCheck = now
+	s.mu.Unlock()
+	return now.Unix()
 }
 

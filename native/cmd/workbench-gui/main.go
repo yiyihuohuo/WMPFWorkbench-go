@@ -410,9 +410,11 @@ func (b *Backend) RefreshAccount() (any, error) {
 	if st.Account == nil {
 		return map[string]any{"ok": false, "status": "no_account", "reason": "请先扫码登录"}, nil
 	}
+	checkedAt := b.svc.MarkAccountChecked()
 	b.logf("账号检查完成：%s", st.Account.Status)
 	return map[string]any{"ok": st.Account.Online, "status": st.Account.Status,
-		"openid": st.Account.OpenID, "nickname": st.Account.NickName}, nil
+		"openid": st.Account.OpenID, "nickname": st.Account.NickName,
+		"checked_at": checkedAt}, nil
 }
 
 func (b *Backend) SelectAccount(ref string) error {
