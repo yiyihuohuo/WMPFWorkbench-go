@@ -16,6 +16,7 @@ import (
 	"io"
 	"math/big"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -89,7 +90,7 @@ func (c *Client) post(ctx context.Context, session account.Session, path string,
 	if _, err = rand.Read(requestID[:]); err != nil {
 		return nil, errors.New("请求标识生成失败")
 	}
-	for key, val := range map[string]string{"Content-Type": "application/json", "Cookie": session.Cookie, "User-Agent": "Mozilla/5.0", "Origin": "https://pc.yyb.qq.com", "Referer": "https://pc.yyb.qq.com/", "Ual-Access-Guid": session.Pairs["guid"], "Ual-Access-Businessid": business, "Ual-Access-Timestamp": ts, "Ual-Access-Nonce": nonce.String(), "Ual-Access-Requestid": hex.EncodeToString(requestID[:])} {
+	for key, val := range map[string]string{"Content-Type": "application/json", "Cookie": session.Cookie, "User-Agent": "Mozilla/5.0", "Origin": "https://pc.yyb.qq.com", "Referer": "https://pc.yyb.qq.com/", "Ual-Access-Guid": session.Pairs["guid"], "Ual-Access-Openid": session.Pairs["openid"], "Ual-Access-Businessid": business, "Ual-Access-Timestamp": ts, "Ual-Access-Nonce": nonce.String(), "Ual-Access-Requestid": hex.EncodeToString(requestID[:])} {
 		req.Header.Set(key, val)
 	}
 	if key != "" {
@@ -149,6 +150,116 @@ func (c *Client) post(ctx context.Context, session account.Session, path string,
 	}
 	return response, nil
 }
+// refreshAccessToken renews an expired UAL access_token via the signed
+// /pc_yyb/pcyyb_refresh_token endpoint. Mirrors wxapkg-dump's ual::refresh_token.
+// Returns the new access token. The caller uses it for the subsequent buffer
+// mint; the sidecar's account.json is intentionally not rewritten here.
+func (c *Client) refreshAccessToken(ctx context.Context, session account.Session) (string, error) {
+	openID := session.Pairs["openid"]
+	refresh := session.Pairs["refreshtoken"]
+	if refresh == "" { refresh = session.Pairs["refreshtoken"] }
+	if refresh == "" {
+		return "", errors.New("PCSDK refresh token 缺失")
+	}
+	payload := map[string]any{"userInfo": map[string]any{
+		"openId": openID, "refreshToken": refresh,
+		"accessToken": session.SDKToken, "loginType": session.Pairs["logintype"],
+	}}
+	var body bytes.Buffer
+	enc := json.NewEncoder(&body)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(payload); err != nil { return "", errors.New("刷新请求编码失败") }
+	raw := bytes.TrimSuffix(body.Bytes(), []byte{'\n'})
+	ts := strconv.FormatInt(time.Now().UnixMilli(), 10)
+	nonceBig, err := rand.Int(rand.Reader, big.NewInt(10000))
+	if err != nil { return "", err }
+	nonce := nonceBig.String()
+	// sign = md5(body + ts + ACCESS_KEY + nonce) — no salt on this endpoint.
+	hash := md5.Sum([]byte(string(raw) + ts + "wgrdg373hy26ww2" + nonce))
+	req, err := http.NewRequestWithContext(ctx, "POST", c.Endpoint+"/pc_yyb/pcyyb_refresh_token", bytes.NewReader(raw))
+	if err != nil { return "", err }
+	for k, v := range map[string]string{
+		"Content-Type": "application/json", "Cookie": session.Cookie,
+		"User-Agent": "Mozilla/5.0", "Origin": "https://pc.yyb.qq.com", "Referer": "https://pc.yyb.qq.com/",
+		"Ual-Access-Businessid": "pc_yyb", "Ual-Access-Timestamp": ts,
+		"Ual-Access-Nonce": nonce, "Ual-Access-Signature": hex.EncodeToString(hash[:]),
+		"Ual-Access-Openid": openID,
+	} { req.Header.Set(k, v) }
+	resp, err := c.HTTP.Do(req)
+	if err != nil { return "", fmt.Errorf("刷新请求失败: %w", err) }
+	defer resp.Body.Close()
+	// Rust reads the rotated token from Set-Cookie first, then body.user_info.
+	newToken := ""
+	for _, ck := range resp.Cookies() {
+		if strings.EqualFold(ck.Name, "accesstoken") && ck.Value != "" { newToken = ck.Value }
+	}
+	data, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	var answer struct {
+		Ret  int `json:"ret"`
+		Code int `json:"code"`
+		Msg  string `json:"msg"`
+		UserInfo struct {
+			AccessToken  string `json:"access_token"`
+			RefreshToken string `json:"refresh_token"`
+			OpenID       string `json:"openid"`
+		} `json:"user_info"`
+	}
+	if json.Unmarshal(data, &answer) != nil { return "", fmt.Errorf("刷新响应无效: %s", string(data)) }
+	if answer.Ret != 0 || answer.Code != 0 {
+		return "", fmt.Errorf("access_token 刷新被拒 (ret=%d, code=%d, msg=%s)", answer.Ret, answer.Code, answer.Msg)
+	}
+	if answer.UserInfo.AccessToken != "" { newToken = answer.UserInfo.AccessToken }
+	if newToken == "" {
+		cookies := []string{}
+		for _, ck := range resp.Cookies() { cookies = append(cookies, ck.Name) }
+		return "", fmt.Errorf("刷新响应未返回新 access_token (ret=%d code=%d cookies=%v body=%.400s)",
+			answer.Ret, answer.Code, cookies, string(data))
+	}
+	return newToken, nil
+}
+
+// mintBuffer calls the one-time buffer endpoint with the given access token.
+func (c *Client) mintBuffer(ctx context.Context, session account.Session, accessToken string) (string, error) {
+	// The buffer endpoint's user_id is the *device key*, not the Ual-Access-Guid
+	// cookie (dump accounts have no guid). wxapkg-dump mints with "default".
+	deviceKey := session.Pairs["device_key"]
+	if deviceKey == "" { deviceKey = "default" }
+	payload := map[string]any{"extInfo": map[string]any{"listS": map[string]any{
+		"unionid": map[string]any{"value": []any{nil}},
+		"user_id": map[string]any{"value": []string{deviceKey}},
+		"access_token": map[string]any{"value": []string{accessToken}},
+	}, "listI": map[string]any{"user_type": map[string]any{"value": []int{1}}}}}
+	res, err := c.post(ctx, session, "/pc_yyb_auth/pcyyb_get_wx_login_buffer_auth", payload, "pc_yyb_auth", "wgrdg373hy26ww2", "")
+	if err != nil { return "", err }
+	values, _ := object(object(object(res["ext_info"])["list_s"])["login_buffer"])["value"].([]any)
+	if len(values) == 0 { return "", errors.New("刷新响应未返回 login_buffer") }
+	return text(values[0]), nil
+}
+
+// replaceCookieValue rewrites one name=value pair in a Cookie header,
+// percent-encoding the value the same way dumpsource.go builds it.
+func replaceCookieValue(cookie, name, value string) string {
+	parts := strings.Split(cookie, ";")
+	for i, part := range parts {
+		kv := strings.SplitN(strings.TrimSpace(part), "=", 2)
+		if len(kv) == 2 && strings.EqualFold(kv[0], name) {
+			parts[i] = kv[0] + "=" + url.PathEscape(value)
+			break
+		}
+	}
+	return strings.Join(parts, "; ")
+}
+
+// isTokenExpired recognizes the vendor's access_token-expired refusal so the
+// mint flow can refresh once and retry.
+func isTokenExpired(err error) bool {
+	if err == nil { return false }
+	msg := err.Error()
+	return strings.Contains(msg, "access_token expired") || strings.Contains(msg, "42001") ||
+		strings.Contains(msg, "40001") || strings.Contains(msg, "invalid credential") ||
+		strings.Contains(msg, "not latest")
+}
+
 func (c *Client) Mint(ctx context.Context, id, entry, dest string) (map[string]any, error) {
 	return c.mint(ctx, id, entry, dest, false)
 }
@@ -215,22 +326,25 @@ func (c *Client) mint(ctx context.Context, id, entry, dest string, freshTicket b
 		if session.SDKToken == "" {
 			return nil, errors.New("PCSDK token 缺失")
 		}
-		// The buffer endpoint's user_id is the *device key*, not the Ual-Access-Guid
-		// cookie (dump accounts have no guid). wxapkg-dump mints its buffer with
-		// the literal "default"; using an empty guid here made the call fail with
-		// code=-109 "invalid user id" on every -10 retry.
-		deviceKey := session.Pairs["device_key"]
-		if deviceKey == "" {
-			deviceKey = "default"
-		}
-		res, err := c.post(ctx, session, "/pc_yyb_auth/pcyyb_get_wx_login_buffer_auth", map[string]any{"extInfo": map[string]any{"listS": map[string]any{"unionid": map[string]any{"value": []any{nil}}, "user_id": map[string]any{"value": []string{deviceKey}}, "access_token": map[string]any{"value": []string{session.SDKToken}}}, "listI": map[string]any{"user_type": map[string]any{"value": []int{1}}}}}, "pc_yyb_auth", "wgrdg373hy26ww2", "")
+		buf, err := c.mintBuffer(ctx, session, session.SDKToken)
 		if err != nil {
-			return nil, err
+			// access_token expiry is the common case for a long-lived dump
+			// account; refresh once and retry, mirroring wxapkg-dump's login
+			// flow (which refreshes before minting the buffer).
+			if isTokenExpired(err) {
+				fresh, rerr := c.refreshAccessToken(ctx, session)
+				if rerr != nil {
+					return nil, fmt.Errorf("access_token 已过期且刷新失败: %w", rerr)
+				}
+				session.SDKToken = fresh
+				// The buffer endpoint reads access_token from the Cookie header,
+				// not the body. Replace the stale cookie value too.
+				session.Cookie = replaceCookieValue(session.Cookie, "accesstoken", fresh)
+				buf, err = c.mintBuffer(ctx, session, fresh)
+			}
+			if err != nil { return nil, err }
 		}
-		values, _ := object(object(object(res["ext_info"])["list_s"])["login_buffer"])["value"].([]any)
-		if len(values) > 0 {
-			ticket, _ = values[0].(string)
-		}
+		ticket = buf
 	}
 	decoded, err := base64.StdEncoding.Strict().DecodeString(ticket)
 	if err != nil || len(decoded) == 0 {
