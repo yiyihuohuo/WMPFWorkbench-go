@@ -732,6 +732,11 @@ func main() {
 	}
 	defer svc.Close()
 	backend := &Backend{svc: svc, cfgPath: *cfgPath}
+	// Route asynchronous runtime failures (e.g. early mint/ticket errors that
+	// never reach the observer's events.jsonl) into the GUI log panel.
+	if rt, ok := svc.Runtime.(*hostruntime.Manager); ok {
+		rt.Logf = backend.logf
+	}
 	err = wails.Run(&options.App{
 		Title:     "小程序工作台",
 		Width:     920,

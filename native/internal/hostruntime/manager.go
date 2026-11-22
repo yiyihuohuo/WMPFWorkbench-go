@@ -34,6 +34,9 @@ type Manager struct {
 	Worker, Host, TargetAddress, CDPAddress string
 	Mint                                    MintFunc
 	MintFresh                               MintFunc
+	// Logf, when set, receives lifecycle failures (including early mint
+	// failures that never reach the observer's events.jsonl). Nil-safe.
+	Logf                                    func(string, ...any)
 	mu                                      sync.Mutex
 	rows                                    map[string]*session
 	closing                                 bool
@@ -365,6 +368,16 @@ func (m *Manager) run(ctx context.Context, s *session) {
 		} else if s.state != "error" {
 			s.state = "closed"
 		}
+		// Persist terminal failures so the reason survives process restarts and
+		// in-memory history eviction. Early mint failures happen before the
+		// bridge/worker start, so observation/bridge.jsonl and events.jsonl do
+		// not exist in that case — this file is the only post-mortem evidence.
+		if s.state == "error" {
+			m.recordFailure(s, runErr)
+			if m.Logf != nil {
+				m.Logf("会话 %s (%s) 启动失败：%s", s.id, s.appid, failureReason(s, runErr))
+			}
+		}
 		close(s.done)
 	}()
 	for attempt := 0; attempt < 2; attempt++ {
@@ -628,4 +641,46 @@ func (m *Manager) Close() {
 			return
 		}
 	}
+}
+
+// failureReason builds the full, human-readable reason from the session state
+// and the terminal error. Callers must hold m.mu (the session fields are read
+// directly). It never includes cookies, tickets or CDP payloads.
+func failureReason(s *session, runErr error) string {
+	parts := []string{}
+	if s.message != "" {
+		parts = append(parts, s.message)
+	}
+	if runErr != nil {
+		msg := runErr.Error()
+		if len(parts) == 0 || !strings.Contains(parts[0], msg) {
+			parts = append(parts, msg)
+		}
+	}
+	if len(parts) == 0 {
+		return "未知原因"
+	}
+	return strings.Join(parts, "；")
+}
+
+// recordFailure writes observation/failure.json for a terminal error session.
+// Callers must hold m.mu. Failures here are best-effort and never change the
+// session state — the reason is still exposed via Sessions() and Logf.
+func (m *Manager) recordFailure(s *session, runErr error) {
+	dir := filepath.Join(s.dir, "observation")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return
+	}
+	row := map[string]any{
+		"event": "session.failed", "session_id": s.id, "appid": s.appid,
+		"state": s.state, "reason": failureReason(s, runErr),
+		"login_confirmed": s.login, "launch_confirmed": s.launched,
+		"debug_connected": s.debug, "worker_started": s.started,
+		"cleanup_state": s.cleanupState, "failed_at": time.Now().Format(time.RFC3339),
+	}
+	data, err := json.MarshalIndent(row, "", "  ")
+	if err != nil {
+		return
+	}
+	_ = os.WriteFile(filepath.Join(dir, "failure.json"), append(data, '\n'), 0600)
 }

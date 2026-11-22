@@ -339,7 +339,7 @@ progress::-webkit-progress-value{background:var(--accent)}
 <script>
 const api = window.go?.main?.Backend;
 const $ = (id) => document.getElementById(id);
-const state = { tools: [], accounts: [], sessions: [], selectedSession: '', qr: null, qrState: 'idle', qrGen: 0, toolFilter: '', toolGroup: '全部分组', avatarRef: '', lastSide: '' };
+const state = { tools: [], accounts: [], sessions: [], selectedSession: '', qr: null, qrState: 'idle', qrGen: 0, toolFilter: '', toolGroup: '全部分组', avatarRef: '', lastSide: '', frontLogs: [] };
 const QR_STATUS = { pending: '等待微信扫描…', scanned: '已扫码，请在手机上确认…', authorized: '已扫码，请在手机上确认…', confirmed: '登录成功', expired: '二维码已过期，请刷新', cancelled: '已取消', unknown: '状态未知' };
 let generation = 0;
 
@@ -376,6 +376,8 @@ function maskSecrets(text) {
 function logAppend(text) {
   const box = $('logText');
   const line = maskSecrets(text);
+  state.frontLogs.push(line);
+  if (state.frontLogs.length > 400) state.frontLogs = state.frontLogs.slice(-400);
   box.textContent = (box.textContent + line + '\n').split('\n').slice(-400).join('\n');
   box.scrollTop = box.scrollHeight;
 }
@@ -578,7 +580,14 @@ function renderResults(payload) {
 }
 
 async function refreshLogs() {
-  try { const logs = await api.Logs(); $('logText').textContent = (logs || []).join('\n'); } catch (e) { }
+  try {
+    const logs = (await api.Logs()) || [];
+    // Merge backend operation log with frontend event lines (session failures,
+    // launch results). Backend alone misses async failures that never reach it;
+    // frontend alone loses on reload. Keep both, dedupe, cap at 400 lines.
+    const merged = logs.concat(state.frontLogs).filter((v, i, a) => a.indexOf(v) === i).slice(-400);
+    $('logText').textContent = merged.join('\n');
+  } catch (e) { }
 }
 
 async function refresh(silent) {

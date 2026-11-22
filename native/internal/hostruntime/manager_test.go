@@ -3,6 +3,9 @@ package hostruntime
 import (
 	"bytes"
 	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
 	"github.com/gorilla/websocket"
 	"net/http"
 	"net/http/httptest"
@@ -347,13 +350,46 @@ func TestRefreshTicketRequiresAliveStatus(t *testing.T) {
 }
 
 func TestAttemptPathsIsolateRetryInputsAndGate(t *testing.T) {
-	root := filepath.Join(t.TempDir(), "session")
-	first := pathsForAttempt(root, 1)
-	second := pathsForAttempt(root, 2)
-	if first.inputs == second.inputs || first.gate == second.gate || first.workerConfig == second.workerConfig {
-		t.Fatalf("retry reused first attempt paths: first=%+v second=%+v", first, second)
+        root := filepath.Join(t.TempDir(), "session")
+        first := pathsForAttempt(root, 1)
+        second := pathsForAttempt(root, 2)
+        if first.inputs == second.inputs || first.gate == second.gate || first.workerConfig == second.workerConfig {
+                t.Fatalf("retry reused first attempt paths: first=%+v second=%+v", first, second)
+        }
+        if first.inputs != filepath.Join(root, "inputs") || second.inputs != filepath.Join(root, "attempt-2", "inputs") {
+                t.Fatalf("unexpected attempt input paths: first=%+v second=%+v", first, second)
+        }
+}
+
+func TestRecordFailurePersistsReason(t *testing.T) {
+	root := t.TempDir()
+	p, _ := app.Resolve(root)
+	m := New(p, config.New(filepath.Join(root, "config.json")), nil)
+	s := &session{id: "d0a98feb14f9544f", appid: "wxde8ac0a21135c07d", dir: filepath.Join(root, "session"),
+		state: "error", message: "启动服务拒绝请求", created: time.Now()}
+	m.recordFailure(s, errors.New("early mint failure"))
+	path := filepath.Join(s.dir, "observation", "failure.json")
+	raw, err := os.ReadFile(path)
+	if err != nil { t.Fatal(err) }
+	var row map[string]any
+	if err := json.Unmarshal(raw, &row); err != nil { t.Fatal(err) }
+	if row["event"] != "session.failed" || row["session_id"] != s.id || row["appid"] != s.appid {
+		t.Fatalf("failure record missing identity: %v", row)
 	}
-	if first.inputs != filepath.Join(root, "inputs") || second.inputs != filepath.Join(root, "attempt-2", "inputs") {
-		t.Fatalf("unexpected attempt input paths: first=%+v second=%+v", first, second)
+	reason := fmt.Sprint(row["reason"])
+	if !strings.Contains(reason, "启动服务拒绝请求") || !strings.Contains(reason, "early mint failure") {
+		t.Fatalf("reason lost detail: %s", reason)
+	}
+}
+
+func TestFailureReasonDedupes(t *testing.T) {
+	s := &session{message: "启动服务 HTTP 403"}
+	if got := failureReason(s, errors.New("启动服务 HTTP 403")); got != "启动服务 HTTP 403" {
+		t.Fatalf("duplicate reason not deduped: %s", got)
+	}
+	s2 := &session{message: "账号登录失败（error_code=-10）"}
+	got := failureReason(s2, errors.New("票据刷新失败：网络超时"))
+	if !strings.Contains(got, "error_code=-10") || !strings.Contains(got, "网络超时") {
+		t.Fatalf("distinct reasons not joined: %s", got)
 	}
 }
