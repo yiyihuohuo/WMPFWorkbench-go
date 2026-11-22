@@ -69,6 +69,9 @@ func (c *Client) base(values config.Values) (string, string, error) {
 // Avatar returns the raw profile image. The desktop token only goes to the
 // local login service, never to a remote host.
 func (c *Client) Avatar(ctx context.Context, ref string) ([]byte, error) {
+	if dumpMode(c.Config) {
+		return nil, errors.New("头像请从授权服务读取")
+	}
 	values, err := c.Config.Read()
 	if err != nil {
 		return nil, err
@@ -97,6 +100,9 @@ func (c *Client) Avatar(ctx context.Context, ref string) ([]byte, error) {
 }
 
 func (c *Client) Request(ctx context.Context, path, method string, body any) (any, error) {
+	if dumpMode(c.Config) {
+		return c.dumpRequest(path, method)
+	}
 	cfg, err := c.Config.Read()
 	if err != nil {
 		c.logf("账号服务请求 %s %s 失败：读取配置出错：%v", method, path, err)
@@ -179,6 +185,9 @@ func text(v any) string {
 }
 func (c *Client) Session(ctx context.Context) (Session, error) {
 	result := Session{}
+	if dumpMode(c.Config) {
+		return c.dumpSession(ctx)
+	}
 	cfg, err := c.Config.Read()
 	if err != nil {
 		return result, err

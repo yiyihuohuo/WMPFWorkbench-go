@@ -318,7 +318,7 @@ func TestRefreshTicketCallsLoginService(t *testing.T) {
 	defer srv.Close()
 	p, _ := app.Resolve(t.TempDir())
 	cfg := config.New(filepath.Join(t.TempDir(), "config.json"))
-	if _, err := cfg.Update(context.Background(), map[string]any{"login_url": srv.URL, "login_token": "fixture", "selected_account": "acct"}); err != nil {
+	if _, err := cfg.Update(context.Background(), map[string]any{"login_mode": "legacy", "login_url": srv.URL, "login_token": "fixture", "selected_account": "acct"}); err != nil {
 		t.Fatal(err)
 	}
 	m := New(p, cfg, account.New(cfg))
@@ -337,7 +337,7 @@ func TestRefreshTicketRequiresAliveStatus(t *testing.T) {
 	defer srv.Close()
 	p, _ := app.Resolve(t.TempDir())
 	cfg := config.New(filepath.Join(t.TempDir(), "config.json"))
-	if _, err := cfg.Update(context.Background(), map[string]any{"login_url": srv.URL, "login_token": "fixture", "selected_account": "acct"}); err != nil {
+	if _, err := cfg.Update(context.Background(), map[string]any{"login_mode": "legacy", "login_url": srv.URL, "login_token": "fixture", "selected_account": "acct"}); err != nil {
 		t.Fatal(err)
 	}
 	m := New(p, cfg, account.New(cfg))

@@ -21,7 +21,7 @@ func TestManagedSessionUsesCorrectSDKNamespace(t *testing.T) {
 	}))
 	defer srv.Close()
 	cfg := config.New(filepath.Join(t.TempDir(), "config.json"))
-	cfg.Update(context.Background(), map[string]any{"login_url": srv.URL, "login_token": "fixture", "selected_account": "main"})
+	cfg.Update(context.Background(), map[string]any{"login_mode": "legacy", "login_url": srv.URL, "login_token": "fixture", "selected_account": "main"})
 	session, err := New(cfg).Session(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -49,7 +49,7 @@ func TestManagedSessionSkipsRefreshWhenSDKExpiryUnknown(t *testing.T) {
 	}))
 	defer srv.Close()
 	cfg := config.New(filepath.Join(t.TempDir(), "config.json"))
-	cfg.Update(context.Background(), map[string]any{"login_url": srv.URL, "login_token": "fixture", "selected_account": "main"})
+	cfg.Update(context.Background(), map[string]any{"login_mode": "legacy", "login_url": srv.URL, "login_token": "fixture", "selected_account": "main"})
 	if _, err := New(cfg).Session(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -73,7 +73,7 @@ func TestManagedSessionRefreshesOnlyWhenSDKExpiryIsNear(t *testing.T) {
 	}))
 	defer srv.Close()
 	cfg := config.New(filepath.Join(t.TempDir(), "config.json"))
-	cfg.Update(context.Background(), map[string]any{"login_url": srv.URL, "login_token": "fixture", "selected_account": "main"})
+	cfg.Update(context.Background(), map[string]any{"login_mode": "legacy", "login_url": srv.URL, "login_token": "fixture", "selected_account": "main"})
 	if _, err := New(cfg).Session(context.Background()); err != nil {
 		t.Fatal(err)
 	}
