@@ -45,6 +45,9 @@ type Service struct {
 	Dump       *dumpclient.Client
 	Runtime    Runtime
 	mu         sync.Mutex
+	// lastQRIdentity caches the identity returned by the confirmed QR poll;
+	// the final confirm step must not re-poll (the session is consumed).
+	lastQRIdentity map[string]any
 	connection sync.Mutex
 	session    *cdp.Session
 }

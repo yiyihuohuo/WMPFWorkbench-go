@@ -56,4 +56,24 @@ func TestLoginQRPollPersistsOpenID(t *testing.T) {
 	if config.String(v, "selected_account") != "owTEST" {
 		t.Fatal("confirmed openid not persisted")
 	}
+	// Confirm must use the cached identity: the QR session is consumed on
+	// confirmation, so a second CheckQR would fail with "session unknown".
+	srv.Close()
+	acc, err := s.LoginQRConfirm(context.Background(), "sid-1")
+	if err != nil { t.Fatalf("confirm re-polled consumed session: %v", err) }
+	if acc["openid"] != "owTEST" { t.Fatalf("confirm identity=%+v", acc) }
+}
+
+func TestLoginQRPollMapsScannedToAuthorized(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "command": "ilink login check",
+			"version": "1.0.0", "protocol": 1, "data": map[string]any{"status": "scanned"}})
+	}))
+	defer srv.Close()
+	s := dumpTestService(t, srv.URL)
+	p, err := s.LoginQRPoll(context.Background(), "sid-1")
+	if err != nil { t.Fatal(err) }
+	if p["status"] != "authorized" {
+		t.Fatalf("scanned should map to authorized (已扫码待确认), got %v", p["status"])
+	}
 }

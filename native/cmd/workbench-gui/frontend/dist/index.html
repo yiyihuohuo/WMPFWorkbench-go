@@ -90,6 +90,11 @@ tbody tr.selected{background:var(--row-selected)}
 .grid2{display:grid;grid-template-columns:minmax(260px,1fr) minmax(300px,1.1fr);gap:12px}
 .qrBox{width:210px;height:210px;margin:0 auto;border:1px solid var(--border);border-radius:4px;background:var(--surface-1);display:flex;align-items:center;justify-content:center;color:var(--text-faint);overflow:hidden}
 .qrBox img{width:196px;height:196px;object-fit:contain}
+.qrBox.scanned{position:relative}
+.qrBox.scanned img{opacity:.28}
+.qrBox.scanned::after{content:'已扫码 · 请在手机确认';position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;padding:12px;color:var(--accent);font-weight:600;background:var(--surface-1);opacity:.92}
+.qrBox.done{color:var(--ok);font-size:13px}
+.qrBox.failed{color:var(--bad);font-size:13px}
 .center{text-align:center}
 .countdown{font-family:Consolas,monospace;font-size:18px;color:var(--text-muted)}
 progress{width:100%;height:3px;border:0;background:var(--surface-3);border-radius:1px;display:block;margin:6px 0}
@@ -335,7 +340,7 @@ progress::-webkit-progress-value{background:var(--accent)}
 const api = window.go?.main?.Backend;
 const $ = (id) => document.getElementById(id);
 const state = { tools: [], accounts: [], sessions: [], selectedSession: '', qr: null, qrState: 'idle', qrGen: 0, toolFilter: '', toolGroup: '全部分组', avatarRef: '', lastSide: '' };
-const QR_STATUS = { pending: '等待微信扫描…', authorized: '已扫码，请在手机上确认…', confirmed: '登录成功', expired: '二维码已过期，请刷新', cancelled: '已取消', unknown: '状态未知' };
+const QR_STATUS = { pending: '等待微信扫描…', scanned: '已扫码，请在手机上确认…', authorized: '已扫码，请在手机上确认…', confirmed: '登录成功', expired: '二维码已过期，请刷新', cancelled: '已取消', unknown: '状态未知' };
 let generation = 0;
 
 function esc(v) { return String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
@@ -675,6 +680,7 @@ async function createQR() {
     state.qr = value; state.qrState = 'pending';
     const src = String(value.image_base64 || '');
     const box = $('qrBox');
+    box.classList.remove('scanned', 'done', 'failed');
     box.innerHTML = `<img alt="二维码" src="${src.startsWith('data:') ? src : 'data:image/png;base64,' + src}">`;
     $('qrStatus').textContent = QR_STATUS.pending;
     logAppend('新二维码已生成，等待微信扫描');
@@ -692,6 +698,7 @@ async function createQR() {
 }
 
 async function pollQR(gen, session) {
+  const box = $('qrBox');
   while (gen === state.qrGen) {
     await new Promise(r => setTimeout(r, 1200));
     if (gen !== state.qrGen) return;
@@ -702,23 +709,49 @@ async function pollQR(gen, session) {
       state.qrState = next;
       $('qrStatus').textContent = QR_STATUS[next] || next;
       if (changed) status('扫码状态：' + (QR_STATUS[next] || next), next === 'confirmed' ? 'ok' : 'busy');
-      if (next === 'authorized' || next === 'confirmed') {
-        $('qrRetry').style.display = next === 'confirmed' ? 'none' : 'block';
+
+      if (next === 'scanned' || next === 'authorized') {
+        // 已扫码：二维码淡化 + 遮罩文字，状态栏提示手机确认；尚未确认时保留重试入口
+        box.classList.add('scanned'); box.classList.remove('done', 'failed');
+        $('qrRetry').style.display = 'block';
+        continue;
       }
       if (next === 'confirmed') {
+        // 已确认：先标记处理中，调后端保存身份；成功/失败分别给不同视觉
+        box.classList.remove('scanned');
+        $('qrStatus').textContent = '登录确认中…';
+        $('qrRetry').style.display = 'none';
         try {
-          await api.QRConfirm(session);
+          const acc = await api.QRConfirm(session);
+          box.classList.add('done');
+          box.textContent = '✓ 登录成功';
+          $('qrStatus').textContent = QR_STATUS.confirmed + (acc && acc.nickname ? '（' + acc.nickname + '）' : '');
           logAppend('扫码登录完成，账号已保存并设为当前账号');
           status('登录成功，账号已保存', 'ok');
         } catch (e) {
+          box.classList.add('failed');
+          box.textContent = '登录保存失败';
+          $('qrStatus').textContent = '登录失败：' + e;
+          $('qrRetry').style.display = 'block';
           logAppend('保存账号失败：' + e);
           status('保存账号失败：' + e, 'bad');
         }
         await refresh(true); break;
       }
-      if (['expired', 'cancelled'].includes(next)) break;
+      if (next === 'expired' || next === 'cancelled') {
+        box.classList.remove('scanned', 'done');
+        box.classList.add('failed');
+        box.textContent = next === 'expired' ? '二维码已过期' : '已取消登录';
+        $('qrRetry').style.display = 'none';
+        break;
+      }
     } catch (error) {
-      logAppend('二维码状态查询失败：' + error); break;
+      box.classList.remove('scanned'); box.classList.add('failed');
+      box.textContent = '状态查询失败';
+      $('qrStatus').textContent = '状态查询失败：' + error;
+      $('qrRetry').style.display = 'block';
+      logAppend('二维码状态查询失败：' + error);
+      break;
     }
   }
 }

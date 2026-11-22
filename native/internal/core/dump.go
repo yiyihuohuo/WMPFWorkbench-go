@@ -116,30 +116,45 @@ func (s *Service) LoginQRCreate(ctx context.Context) (map[string]any, error) {
 		"healthy": true}, nil
 }
 
-// LoginQRPoll polls QR state and maps it to the GUI's legacy status shape.
+// LoginQRPoll polls QR state and maps it to the GUI's status shape.
+// "scanned"/"authorized" both mean the phone has scanned and is awaiting
+// confirmation -> reported as "authorized" which the UI renders as 已扫码待确认.
 func (s *Service) LoginQRPoll(ctx context.Context, sid string) (map[string]any, error) {
 	r, err := s.Dump.CheckQR(ctx, sid)
 	if err != nil { return nil, err }
-	if r.Status == "confirmed" && r.OpenID != "" {
-		_, _ = s.Config.Update(ctx, map[string]any{"selected_account": r.OpenID})
-	}
 	status := r.Status
-	if status == "scanned" || status == "authorized" { status = "scanned" }
+	if status == "scanned" { status = "authorized" }
+	if status == "confirmed" && r.OpenID != "" {
+		_, _ = s.Config.Update(ctx, map[string]any{"selected_account": r.OpenID})
+		// Cache identity: the QR session is consumed on confirm, so the final
+		// QRConfirm step must NOT call CheckQR again.
+		s.mu.Lock()
+		s.lastQRIdentity = map[string]any{"id": r.OpenID, "openid": r.OpenID,
+			"nickname": r.NickName, "avatar": r.Avatar, "status": "confirmed"}
+		s.mu.Unlock()
+	}
 	return map[string]any{"status": status, "state": status, "code": status,
 		"nickname": r.NickName, "avatar": r.Avatar, "openid": r.OpenID, "message": r.Message}, nil
 }
 
-// LoginQRConfirm is retained for the GUI's final confirm step; the identity is
-// already persisted by the poll when the state turns confirmed.
+// LoginQRConfirm finalizes a confirmed QR login using the identity cached by
+// the poll. It never re-polls: dump consumes the session on confirmation, so a
+// second check returns "that login session is unknown".
 func (s *Service) LoginQRConfirm(ctx context.Context, sid string) (map[string]any, error) {
-	r, err := s.Dump.CheckQR(ctx, sid)
-	if err != nil { return nil, err }
-	openid := r.OpenID
-	if openid == "" {
-		if st, e := s.Dump.Status(ctx); e == nil && st.Account != nil { openid = st.Account.OpenID }
+	s.mu.Lock()
+	cached := s.lastQRIdentity
+	s.lastQRIdentity = nil
+	s.mu.Unlock()
+	if cached != nil {
+		return cached, nil
 	}
+	// Fallback: read the account the sidecar has already stored.
+	st, err := s.Dump.Status(ctx)
+	if err != nil { return nil, err }
+	openid, nick := "", ""
+	if st.Account != nil { openid, nick = st.Account.OpenID, st.Account.NickName }
 	if openid != "" { _, _ = s.Config.Update(ctx, map[string]any{"selected_account": openid}) }
-	return map[string]any{"id": openid, "openid": openid, "nickname": r.NickName, "status": r.Status}, nil
+	return map[string]any{"id": openid, "openid": openid, "nickname": nick, "status": "confirmed"}, nil
 }
 
 // dumpAccountForStatus builds a GUI-compatible account list from the sidecar's
