@@ -74,6 +74,25 @@ func TestLoginQRPollMapsScannedToAuthorized(t *testing.T) {
 	p, err := s.LoginQRPoll(context.Background(), "sid-1")
 	if err != nil { t.Fatal(err) }
 	if p["status"] != "authorized" {
-		t.Fatalf("scanned should map to authorized (已扫码待确认), got %v", p["status"])
+	        t.Fatalf("scanned should map to authorized (已扫码待确认), got %v", p["status"])
 	}
-}
+	}
+
+	func TestDumpAccountForStatusMapsLastChecked(t *testing.T) {
+	const last = int64(1795318401)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "command": "ilink status",
+	"data": map[string]any{"implementation": "native",
+	"account": map[string]any{"openid": "owTEST", "nickName": "tester",
+	"status": "在线", "online": true, "lastRefreshAt": last}}})
+	}))
+	defer srv.Close()
+	s := dumpTestService(t, srv.URL)
+	out, err := s.dumpAccountForStatus(context.Background())
+	if err != nil { t.Fatal(err) }
+	accounts := out.(map[string]any)["accounts"].([]map[string]any)
+	if len(accounts) != 1 { t.Fatalf("accounts=%v", accounts) }
+	if accounts[0]["last_checked_at"] != last {
+	t.Fatalf("last_checked_at not mapped: %v", accounts[0])
+	}
+	}

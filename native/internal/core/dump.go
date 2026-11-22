@@ -190,11 +190,18 @@ func (s *Service) dumpAccountForStatus(ctx context.Context) (any, error) {
 	if err != nil { return nil, err }
 	accounts := []map[string]any{}
 	if st.Account != nil && st.Account.OpenID != "" {
-		accounts = append(accounts, map[string]any{
+		account := map[string]any{
 			"id": st.Account.OpenID, "openid": st.Account.OpenID,
 			"nickname": st.Account.NickName, "avatar": st.Account.Avatar,
 			"status": st.Account.Status, "online": st.Account.Online,
-		})
+		}
+		// The GUI account table renders last_checked_at; in dump mode the only
+		// freshness signal is the sidecar's lastRefreshAt. Surface it so the
+		// column shows a real time instead of "—".
+		if st.Account.LastRefresh > 0 {
+			account["last_checked_at"] = st.Account.LastRefresh
+		}
+		accounts = append(accounts, account)
 	}
 	values, _ := s.Config.Read()
 	return map[string]any{"accounts": accounts, "selected_account": config.String(values, "selected_account"),
