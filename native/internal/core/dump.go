@@ -32,8 +32,8 @@ func (s *Service) exportDir() (string, error) {
 	return dir, nil
 }
 
-// exportPackage implements the export_mini_program tool. It delegates the
-// actual download/unpack to the wxapkg-dump sidecar via its HTTP API.
+// exportPackage enqueues a background export task and returns a task id
+// immediately. Progress is polled via export_status.
 func (s *Service) exportPackage(ctx context.Context, args map[string]any) (any, error) {
 	appid := strings.TrimSpace(str(args, "appid"))
 	username := strings.TrimSpace(str(args, "username"))
@@ -68,14 +68,35 @@ func (s *Service) exportPackage(ctx context.Context, args map[string]any) (any, 
 		Unpack: boolean(args, "unpack"), Beautify: boolean(args, "beautify"),
 	}
 	if opts.Concurrency == 0 { opts.Concurrency = 3 }
-	res, err := s.Dump.Download(ctx, opts)
-	if err != nil {
-		return map[string]any{"ok": false, "grade": "blocked", "reason": err.Error(),
-			"appid": appid, "username": username, "out_dir": dir}, nil
+	if s.Exports == nil {
+		return map[string]any{"ok": false, "grade": "blocked", "reason": "导出任务服务未初始化"}, nil
 	}
-	return map[string]any{"ok": true, "grade": "confirmed", "source": "wxapkg-dump",
-		"appid": res.AppID, "username": res.Username, "out_dir": res.OutDir,
-		"unpacked_dir": res.UnpackedDir, "packages": res.Packages}, nil
+	started, err := s.Exports.Start(ctx, opts)
+	if err != nil {
+		return map[string]any{"ok": false, "grade": "blocked", "reason": err.Error()}, nil
+	}
+	started["grade"] = "confirmed"
+	started["appid"] = appid
+	started["username"] = username
+	started["out_dir"] = dir
+	return started, nil
+}
+
+// exportStatus reports progress of background export tasks.
+// action: status (single task or latest) | list | cancel.
+func (s *Service) exportStatus(args map[string]any) (any, error) {
+	if s.Exports == nil {
+		return map[string]any{"ok": false, "reason": "导出任务服务未初始化"}, nil
+	}
+	id := str(args, "task_id")
+	switch str(args, "action") {
+	case "cancel":
+		return s.Exports.Cancel(id), nil
+	case "list":
+		return map[string]any{"ok": true, "items": s.Exports.List(integer(args, "limit"))}, nil
+	default:
+		return s.Exports.Status(id), nil
+	}
 }
 
 // DumpStatus reports the sidecar's account state and export configuration.

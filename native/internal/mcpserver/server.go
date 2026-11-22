@@ -80,6 +80,8 @@ func New(c *core.Service) (*mcp.Server, error) {
 					}
 				}
 			}
+			// All tools return promptly: export_mini_program only enqueues a
+			// task and export_status is a quick poll, so no long special-case.
 			ctx, cancel := context.WithTimeout(ctx, 100*time.Second)
 			defer cancel()
 			value, err := c.Call(ctx, tool.Name, args)

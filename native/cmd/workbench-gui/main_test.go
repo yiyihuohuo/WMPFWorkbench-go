@@ -27,8 +27,8 @@ func fixtureBackend(t *testing.T) *Backend {
 func TestToolsTogglePersists(t *testing.T) {
 	b := fixtureBackend(t)
 	tools := b.Tools()
-	if len(tools) != 17 {
-		t.Fatal("expected 17 tools", len(tools))
+	if len(tools) != 18 {
+		t.Fatal("expected 18 tools", len(tools))
 	}
 	after, err := b.SetTool("cdp_events", false)
 	if err != nil {

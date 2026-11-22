@@ -10,7 +10,7 @@ func TestFrozenCatalog(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(tools) != 17 || len(resources) != 4 {
+	if len(tools) != 18 || len(resources) != 4 {
 		t.Fatalf("catalog: %d tools / %d resources", len(tools), len(resources))
 	}
 	seen := map[string]bool{}

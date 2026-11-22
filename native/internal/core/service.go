@@ -21,6 +21,7 @@ import (
 	"wmpfworkbench/internal/cdp"
 	"wmpfworkbench/internal/config"
 	"wmpfworkbench/internal/dumpclient"
+	"wmpfworkbench/internal/export"
 	"wmpfworkbench/internal/hostruntime"
 	"wmpfworkbench/internal/loginsvc"
 	"wmpfworkbench/internal/netlog"
@@ -43,6 +44,7 @@ type Service struct {
 	Jobs       *wxapkg.Manager
 	LoginSvc   *loginsvc.Manager
 	Dump       *dumpclient.Client
+	Exports    *export.Manager
 	Runtime    Runtime
 	mu         sync.Mutex
 	// lastQRIdentity caches the identity returned by the confirmed QR poll;
@@ -75,7 +77,7 @@ func New(p app.Paths) *Service {
 		AdminKey:  config.String(cv, "dump_admin_key"),
 		AutoStart: true,
 	})
-	return &Service{Paths: p, Config: cfg, Account: a, Local: catalog.NewLocal(p), Online: catalog.NewOnline(a), Jobs: wxapkg.New(p, tool), LoginSvc: loginsvc.New(p, cfg), Dump: dump, Runtime: hostruntime.New(p, cfg, a)}
+	return &Service{Paths: p, Config: cfg, Account: a, Local: catalog.NewLocal(p), Online: catalog.NewOnline(a), Jobs: wxapkg.New(p, tool), LoginSvc: loginsvc.New(p, cfg), Dump: dump, Exports: export.New(dump), Runtime: hostruntime.New(p, cfg, a)}
 }
 func (s *Service) Close() {
 	s.mu.Lock()
@@ -170,6 +172,8 @@ func (s *Service) Call(ctx context.Context, name string, args map[string]any) (a
 		}
 	case "export_mini_program":
 		return s.exportPackage(ctx, args)
+	case "export_status":
+		return s.exportStatus(args)
 	case "netlog":
 		if str(args, "action") == "discover" {
 			roots := []string{}

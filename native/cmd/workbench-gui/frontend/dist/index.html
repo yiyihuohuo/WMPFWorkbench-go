@@ -963,6 +963,48 @@ $('pickExportDir').addEventListener('click', async () => {
     if (picked) { $('exportDir').value = picked; status('已选择目录，请点“保存目录”', 'busy'); }
   } catch (e) { status('选择目录失败：' + e, 'bad'); }
 });
+async function pollExport(taskId) {
+  const out = $('exportResult');
+  const btn = $('exportBtn');
+  btn.disabled = true; btn.textContent = '导出中…';
+  const t0 = Date.now();
+  let ticks = 0;
+  while (true) {
+    try {
+      const st = await api.ExportStatus('status', taskId, 1);
+      const state = st && st.state || 'unknown';
+      const elapsed = st && st.elapsed_ms ? Math.round(st.elapsed_ms / 1000) : Math.round((Date.now() - t0) / 1000);
+      const bar = '█'.repeat(Math.min(20, ticks % 20 + 1)) + '░'.repeat(Math.max(0, 19 - (ticks % 20)));
+      if (state === 'queued' || state === 'running') {
+        out.textContent = '[' + bar + '] ' + (st.phase || '处理中') + ' · 已用 ' + elapsed + 's\n（服务端下载解包中，请耐心等待）';
+        status('导出进行中：' + (st.phase || state), 'busy');
+      } else if (state === 'done') {
+        out.textContent = '✓ 导出完成 · 用时 ' + elapsed + 's\n' + JSON.stringify(st.result || {}, null, 2);
+        status('导出完成', 'ok');
+        logAppend('导出任务 ' + taskId + ' 完成（' + elapsed + 's）');
+        btn.disabled = false; btn.textContent = '导出此小程序包';
+        refreshDumpStatus();
+        return;
+      } else if (state === 'failed' || state === 'cancelled') {
+        out.textContent = '✗ ' + (state === 'failed' ? '导出失败' : '已取消') + ' · 用时 ' + elapsed + 's\n' + (st.reason || '');
+        status(state === 'failed' ? '导出失败：' + (st.reason || '') : '导出已取消', 'bad');
+        logAppend('导出任务 ' + taskId + ' ' + state + '：' + (st.reason || ''));
+        btn.disabled = false; btn.textContent = '导出此小程序包';
+        return;
+      } else {
+        out.textContent = '任务状态：' + state + '\n' + JSON.stringify(st, null, 2);
+      }
+    } catch (e) {
+      out.textContent = '进度查询失败：' + e + '\n（任务可能仍在后台运行，稍后可重试查询）';
+      status('进度查询失败：' + e, 'bad');
+      btn.disabled = false; btn.textContent = '导出此小程序包';
+      return;
+    }
+    ticks++;
+    await new Promise(r => setTimeout(r, 1500));
+  }
+}
+
 $('exportBtn').addEventListener('click', async () => {
   const appid = $('exportAppid').value.trim();
   const username = $('exportUsername').value.trim();
@@ -970,22 +1012,27 @@ $('exportBtn').addEventListener('click', async () => {
   if (appid && !/^wx[0-9a-f]{16}$/.test(appid)) { status('AppID 格式应为 wx + 16 位十六进制'); return; }
   $('exportBtn').disabled = true;
   const out = $('exportResult');
-  out.textContent = '正在导出（可能需要数十秒）…';
-  status('正在导出小程序包…', 'busy');
+  out.textContent = '正在提交导出任务…';
+  status('正在提交导出任务…', 'busy');
   try {
     const r = await api.ExportPackage(appid, username, $('exportDir').value.trim(),
       parseInt($('exportVersionType').value, 10) || 0, $('exportVersion').value.trim(),
       $('exportAll').checked, $('exportUnpack').checked, $('exportBeautify').checked);
-    out.textContent = JSON.stringify(r, null, 2);
-    status(r && r.ok ? '导出完成' : ('导出未完成：' + ((r && r.reason) || '未知原因')), r && r.ok ? 'ok' : 'bad');
-    logAppend('导出 ' + (appid || username) + '：' + (r && r.ok ? 'ok' : (r && r.reason || 'failed')));
-    refreshDumpStatus();
+    if (!r || !r.ok || !r.task_id) {
+      out.textContent = '提交失败：' + JSON.stringify(r || {}, null, 2);
+      status('导出提交失败', 'bad');
+      $('exportBtn').disabled = false;
+      return;
+    }
+    out.textContent = '任务已提交：' + r.task_id + '\n' + (r.out_dir || '') + '\n开始查询进度…';
+    status('导出任务已提交，后台处理中', 'busy');
+    pollExport(r.task_id);
   } catch (e) {
     out.textContent = '导出失败：' + e;
     status('导出失败：' + e, 'bad');
     logAppend('导出失败：' + e);
+    $('exportBtn').disabled = false;
   }
-  $('exportBtn').disabled = false;
 });
 
 $('clearLogs').addEventListener('click', async () => {

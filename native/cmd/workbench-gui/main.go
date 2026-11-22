@@ -331,12 +331,19 @@ func (b *Backend) ExportPackage(appid, username, outDir string, versionType int,
 	}
 	if row, ok := result.(map[string]any); ok {
 		if row["ok"] == true {
-			b.logf("导出完成：%s → %v", ctxInfo, row["out_dir"])
+			b.logf("导出任务已提交：%s → %v", ctxInfo, row["out_dir"])
 		} else {
-			b.logf("导出失败：%v", row["reason"])
+			b.logf("导出提交失败：%v", row["reason"])
 		}
 	}
 	return result, nil
+}
+
+// ExportStatus polls a background export task (status/list/cancel).
+func (b *Backend) ExportStatus(action, taskID string, limit int) (any, error) {
+	return b.svc.Call(b.ctx, "export_status", map[string]any{
+		"action": action, "task_id": taskID, "limit": limit,
+	})
 }
 
 // LoginStatus returns masked account information plus service state. Failures

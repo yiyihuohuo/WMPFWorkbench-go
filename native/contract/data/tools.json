@@ -416,7 +416,7 @@
   },
   {
     "name": "export_mini_program",
-    "description": "导出任意小程序的完整包（wxapkg）与可导入 DevTools 的工程：通过本地 wxapkg-dump Rust sidecar 的 HTTP API 从应用宝远程服务按 appid 或 username 下载，可选解包(unpack)/美化(beautify)/全量资源包(all_packages)。\n\n依赖一次授权登录（用 login 工具的 action=qr/check 完成；凭证只留在 wxapkg-dump，不经过本工具）。导出目录默认取配置的 dump_export_dir（<root>/out/wxapkg-export），也可用 out_dir 显式指定绝对路径；结果回传 out_dir/outDir 与逐包清单。\nversion_type: 0 正式(默认)、1 体验、2 开发、999 预览；version 为空取最新。",
+    "description": "提交一个任意小程序包导出任务（异步，立即返回 task_id，不会阻塞 agent）。\n通过本地授权会话从远程服务按 appid 或 username 下载完整 wxapkg；提交后用 export_status 查询进度与最终结果。\nversion_type: 0 正式(默认)、1 体验、2 开发、999 预览；version 为空取最新。",
     "inputSchema": {
       "type": "object",
       "title": "export_mini_programArguments",
@@ -474,6 +474,36 @@
           "type": "boolean",
           "default": false,
           "title": "Beautify"
+        }
+      }
+    }
+  },
+  {
+    "name": "export_status",
+    "description": "查询小程序包导出任务的进度与结果。\naction=status：带 task_id 查单个任务；留空查最近一个任务。\n任务 state 为 queued/running/done/failed/cancelled，phase 描述当前阶段，elapsed_ms 为耗时；done 时 result 含 out_dir/unpacked_dir/packages。\naction=list 列出最近任务，action=cancel 取消任务。",
+    "inputSchema": {
+      "type": "object",
+      "title": "export_statusArguments",
+      "properties": {
+        "action": {
+          "type": "string",
+          "default": "status",
+          "enum": [
+            "status",
+            "list",
+            "cancel"
+          ],
+          "title": "Action"
+        },
+        "task_id": {
+          "type": "string",
+          "default": "",
+          "title": "Task Id"
+        },
+        "limit": {
+          "type": "integer",
+          "default": 10,
+          "title": "Limit"
         }
       }
     }

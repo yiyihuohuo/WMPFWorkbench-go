@@ -37,7 +37,7 @@ func TestFrozenCatalogAndLivePolicy(t *testing.T) {
 	}
 	defer cs.Close()
 	list, err := cs.ListTools(ctx, nil)
-	if err != nil || len(list.Tools) != 17 {
+	if err != nil || len(list.Tools) != 18 {
 		t.Fatalf("tools: %+v %v", list, err)
 	}
 	frozen, _, _ := contract.Catalog()
@@ -66,7 +66,7 @@ func TestFrozenCatalogAndLivePolicy(t *testing.T) {
 	}
 	c.Config.Update(ctx, map[string]any{"disabled_tools": []string{"index"}})
 	list, err = cs.ListTools(ctx, nil)
-	if err != nil || len(list.Tools) != 16 {
+	if err != nil || len(list.Tools) != 17 {
 		t.Fatalf("policy list %+v %v", list, err)
 	}
 	result, err = cs.CallTool(ctx, &mcp.CallToolParams{Name: "index"})
