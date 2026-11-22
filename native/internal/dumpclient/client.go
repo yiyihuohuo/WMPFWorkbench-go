@@ -260,10 +260,11 @@ func (c *Client) Status(ctx context.Context) (Status, error) {
 	return s, err
 }
 
-// LoginQR creates a QR login session.
+// LoginQR creates a QR login session. It fetches a code from the remote
+// service and can take >10s on a slow network, so it uses a longer timeout.
 func (c *Client) LoginQR(ctx context.Context) (LoginQR, error) {
 	var q LoginQR
-	err := c.do(ctx, http.MethodPost, loginQRPath, map[string]any{}, &q)
+	err := c.doTimeout(ctx, http.MethodPost, loginQRPath, map[string]any{}, &q, 60*time.Second)
 	return q, err
 }
 
