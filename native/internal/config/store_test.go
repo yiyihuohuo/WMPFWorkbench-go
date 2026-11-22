@@ -13,10 +13,10 @@ func TestDefaultsMigrationAndUnknownFields(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.json")
 	s := New(path)
 	cfg, err := s.Read()
-	if err != nil || cfg["hide_miniapp_window"] != true {
-		t.Fatalf("defaults must hide host window: %v %v", cfg, err)
+	if err != nil || cfg["hide_miniapp_window"] != false {
+		t.Fatalf("defaults %v %v", cfg, err)
 	}
-	raw := `{"tool_catalog_version":2,"custom":"keep","disabled_tools":["source_export","cdp_send"],"hide_miniapp_window":false}`
+	raw := `{"tool_catalog_version":2,"custom":"keep","disabled_tools":["source_export","cdp_send"],"hide_miniapp_window":true}`
 	if err = os.WriteFile(path, []byte(raw), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -24,8 +24,8 @@ func TestDefaultsMigrationAndUnknownFields(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg["custom"] != "keep" || cfg["hide_miniapp_window"] != false || s.Enabled("cdp_send") {
-		t.Fatalf("explicit hide=false must survive migration: %v", cfg)
+	if cfg["custom"] != "keep" || cfg["hide_miniapp_window"] != true || s.Enabled("cdp_send") {
+		t.Fatal(cfg)
 	}
 	if len(cfg["disabled_tools"].([]string)) != 1 {
 		t.Fatal(cfg)
