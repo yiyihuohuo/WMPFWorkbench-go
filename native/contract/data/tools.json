@@ -477,31 +477,5 @@
         }
       }
     }
-  },
-  {
-    "name": "login",
-    "description": "登录/账号状态，复用 wxapkg-dump 的授权链（替代旧的内嵌登录服务）。\naction=status：当前账号是否在线、openid、导出目录与服务状态。\naction=qr：发码，返回 session_id / qr_content / qr_image(data URI) / expires_in。\naction=check：带 session_id 轮询，状态 waiting/scanned/confirmed/expired/cancelled；confirmed 时返回 nickname/openid 并自动设为当前账号。\n凭证始终留在 wxapkg-dump（0600 存储），本工具只回传公开字段，不泄露 token。",
-    "inputSchema": {
-      "type": "object",
-      "title": "loginArguments",
-      "properties": {
-        "action": {
-          "type": "string",
-          "default": "status",
-          "enum": [
-            "status",
-            "qr",
-            "check"
-          ],
-          "title": "Action"
-        },
-        "session_id": {
-          "type": "string",
-          "default": "",
-          "title": "Session Id",
-          "description": "check 时必填，来自 qr"
-        }
-      }
-    }
   }
 ]

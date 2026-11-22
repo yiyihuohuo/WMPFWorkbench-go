@@ -262,7 +262,7 @@ progress::-webkit-progress-value{background:var(--accent)}
         </div>
         <div class="card" style="margin-top:12px">
           <h2 class="cardTitle">导出小程序包（任意 AppID）</h2>
-          <p class="muted small" style="margin:-4px 0 10px">复用 wxapkg-dump 授权会话，从应用宝远程服务下载完整 wxapkg 与可导入 DevTools 的工程；无需先在本机打开小程序。</p>
+          <p class="muted small" style="margin:-4px 0 10px">从远程服务下载完整小程序包（wxapkg）与可导入 DevTools 的工程；无需先在本机打开小程序。</p>
           <div class="row">
             <input class="grow" id="exportAppid" placeholder="wx 开头的 18 位 AppID（或填下方原始 ID）">
             <input id="exportUsername" placeholder="原始 ID gh_…（与 AppID 二选一）" style="width:210px">
@@ -283,7 +283,7 @@ progress::-webkit-progress-value{background:var(--accent)}
           </div>
           <div class="row">
             <button class="primary" id="exportBtn">导出此小程序包</button>
-            <span class="muted small" id="exportHint">依赖 wxapkg-dump 授权；未登录请到“扫码与账号”。</span>
+            <span class="muted small" id="exportHint">导出需要先登录；未登录请到“扫码与账号”。</span>
           </div>
           <pre class="schema" id="exportResult" style="margin-top:10px">导出结果将显示在这里…</pre>
         </div>

@@ -167,8 +167,6 @@ func (s *Service) Call(ctx context.Context, name string, args map[string]any) (a
 		}
 	case "export_mini_program":
 		return s.exportPackage(ctx, args)
-	case "login":
-		return s.loginViaDump(ctx, args)
 	case "netlog":
 		if str(args, "action") == "discover" {
 			roots := []string{}
@@ -190,6 +188,11 @@ func (s *Service) Call(ctx context.Context, name string, args map[string]any) (a
 		cfg, err := s.Config.Read()
 		if err != nil {
 			return nil, err
+		}
+		// New login backend: read the account from the local auth sidecar in
+		// the same response shape the GUI already understands.
+		if config.String(cfg, "login_mode") == "dump" {
+			return s.dumpAccountForStatus(ctx)
 		}
 		var service any
 		if s.LoginSvc != nil {

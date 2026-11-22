@@ -77,8 +77,8 @@ func (s *Service) exportPackage(ctx context.Context, args map[string]any) (any, 
 		"unpacked_dir": res.UnpackedDir, "packages": res.Packages}, nil
 }
 
-// dumpStatus reports the sidecar's account state and export configuration.
-func (s *Service) dumpStatus(ctx context.Context) (any, error) {
+// DumpStatus reports the sidecar's account state and export configuration.
+func (s *Service) DumpStatus(ctx context.Context) (any, error) {
 	dir, _ := s.exportDir()
 	out := map[string]any{"base_url": s.Dump.BaseURL(), "exe": s.Dump.ResolveExe(),
 		"workspace": s.Dump.Workspace(), "export_dir": dir, "reachable": s.Dump.Reachable(ctx)}
@@ -93,36 +93,71 @@ func (s *Service) dumpStatus(ctx context.Context) (any, error) {
 	return out, nil
 }
 
-// loginViaDump replaces the old login service with wxapkg-dump's QR endpoints.
-// action: status | qr | check | info.
-func (s *Service) loginViaDump(ctx context.Context, args map[string]any) (any, error) {
-	action := str(args, "action")
-	if action == "" { action = "status" }
-	if err := s.Dump.Ensure(ctx); err != nil {
-		return map[string]any{"ok": false, "action": action, "reason": "wxapkg-dump 服务不可用: " + err.Error()}, nil
+// LoginEnsure brings up the local authorization service used by GUI login.
+func (s *Service) LoginEnsure(ctx context.Context) error { return s.Dump.Ensure(ctx) }
+
+// LoginStop stops a sidecar started by LoginEnsure.
+func (s *Service) LoginStop() { s.Dump.Stop() }
+
+// LoginQRCreate returns QR fields mapped to the GUI's legacy shape so the
+// existing QR widget works unchanged.
+func (s *Service) LoginQRCreate(ctx context.Context) (map[string]any, error) {
+	if err := s.Dump.Ensure(ctx); err != nil { return nil, err }
+	q, err := s.Dump.LoginQR(ctx)
+	if err != nil { return nil, err }
+	img := q.QRImage
+	if img != "" && !strings.HasPrefix(img, "data:") { img = "data:image/png;base64," + img }
+	return map[string]any{"session_id": q.SessionID, "image_base64": img,
+		"qr_content": q.QRContent, "expires_in": q.ExpiresIn, "healthy": true}, nil
+}
+
+// LoginQRPoll polls QR state and maps it to the GUI's legacy status shape.
+func (s *Service) LoginQRPoll(ctx context.Context, sid string) (map[string]any, error) {
+	r, err := s.Dump.CheckQR(ctx, sid)
+	if err != nil { return nil, err }
+	if r.Status == "confirmed" && r.OpenID != "" {
+		_, _ = s.Config.Update(ctx, map[string]any{"selected_account": r.OpenID})
 	}
-	switch action {
-	case "status":
-		return s.dumpStatus(ctx)
-	case "qr":
-		q, err := s.Dump.LoginQR(ctx)
-		if err != nil { return map[string]any{"ok": false, "action": action, "reason": err.Error()}, nil }
-		return map[string]any{"ok": true, "action": action, "session_id": q.SessionID,
-			"qr_content": q.QRContent, "qr_image": q.QRImage, "expires_in": q.ExpiresIn}, nil
-	case "check":
-		sid := str(args, "session_id")
-		if sid == "" { sid = str(args, "session") }
-		if sid == "" { return map[string]any{"ok": false, "action": action, "reason": "session_id 必填"}, nil }
-		r, err := s.Dump.CheckQR(ctx, sid)
-		if err != nil { return map[string]any{"ok": false, "action": action, "reason": err.Error()}, nil }
-		// Persist the confirmed openid as the selected account so other tools
-		// (search/export) use the just-logged-in identity.
-		if r.Status == "confirmed" && r.OpenID != "" {
-			_, _ = s.Config.Update(ctx, map[string]any{"selected_account": r.OpenID})
-		}
-		return map[string]any{"ok": true, "action": action, "status": r.Status,
-			"nickname": r.NickName, "avatar": r.Avatar, "openid": r.OpenID, "message": r.Message}, nil
+	status := r.Status
+	if status == "scanned" || status == "authorized" { status = "scanned" }
+	return map[string]any{"status": status, "state": status, "code": status,
+		"nickname": r.NickName, "avatar": r.Avatar, "openid": r.OpenID, "message": r.Message}, nil
+}
+
+// LoginQRConfirm is retained for the GUI's final confirm step; the identity is
+// already persisted by the poll when the state turns confirmed.
+func (s *Service) LoginQRConfirm(ctx context.Context, sid string) (map[string]any, error) {
+	r, err := s.Dump.CheckQR(ctx, sid)
+	if err != nil { return nil, err }
+	openid := r.OpenID
+	if openid == "" {
+		if st, e := s.Dump.Status(ctx); e == nil && st.Account != nil { openid = st.Account.OpenID }
 	}
-	return nil, fmt.Errorf("invalid login action: %s", action)
+	if openid != "" { _, _ = s.Config.Update(ctx, map[string]any{"selected_account": openid}) }
+	return map[string]any{"id": openid, "openid": openid, "nickname": r.NickName, "status": r.Status}, nil
+}
+
+// dumpAccountForStatus builds a GUI-compatible account list from the sidecar's
+// public account state, so login_status keeps its original response shape.
+func (s *Service) dumpAccountForStatus(ctx context.Context) (any, error) {
+	if s.Dump == nil {
+		values, _ := s.Config.Read()
+		return map[string]any{"accounts": []any{}, "selected_account": config.String(values, "selected_account"),
+			"login_service": map[string]any{"running": false, "healthy": false, "error": "导出服务未初始化"}}, nil
+	}
+	st, err := s.Dump.Status(ctx)
+	if err != nil { return nil, err }
+	accounts := []map[string]any{}
+	if st.Account != nil && st.Account.OpenID != "" {
+		accounts = append(accounts, map[string]any{
+			"id": st.Account.OpenID, "openid": st.Account.OpenID,
+			"nickname": st.Account.NickName, "avatar": st.Account.Avatar,
+			"status": st.Account.Status, "online": st.Account.Online,
+		})
+	}
+	values, _ := s.Config.Read()
+	return map[string]any{"accounts": accounts, "selected_account": config.String(values, "selected_account"),
+		"login_service": map[string]any{"url": s.Dump.BaseURL(), "running": s.Dump.Reachable(ctx),
+			"healthy": s.Dump.Reachable(ctx)}}, nil
 }
 

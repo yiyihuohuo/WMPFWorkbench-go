@@ -64,16 +64,11 @@ func (b *Backend) Startup(ctx context.Context) {
 		b.startMCP()
 	}
 	go func() {
-		status, err := b.svc.LoginSvc.Ensure(ctx)
-		if err != nil {
-			detail := status.Error
-			if detail == "" {
-				detail = err.Error()
-			}
-			b.logErr("登录服务自动启动", err, "服务状态: "+detail)
+		if err := b.svc.LoginEnsure(ctx); err != nil {
+			b.logErr("授权服务自动启动", err, "")
 			return
 		}
-		b.logf("登录服务已自动启动（%s）", status.URL)
+		b.logf("授权服务已自动启动（%s）", b.svc.Dump.BaseURL())
 	}()
 }
 
@@ -297,7 +292,7 @@ func (b *Backend) SavePorts(loginPort, mcpPort int, bind string) (map[string]any
 // DumpStatus reports the wxapkg-dump sidecar state and the effective export
 // directory. It is used by the search page's export card.
 func (b *Backend) DumpStatus() (any, error) {
-	out, err := b.svc.Call(b.ctx, "login", map[string]any{"action": "status"})
+	out, err := b.svc.DumpStatus(b.ctx)
 	if err != nil {
 		b.logErr("读取导出服务状态", err, "")
 		return out, err
@@ -391,23 +386,18 @@ func (b *Backend) LoginStatus() (any, error) {
 }
 
 func (b *Backend) StartLogin() (any, error) {
-	status, err := b.svc.LoginSvc.Ensure(b.ctx)
-	if err != nil {
-		detail := status.Error
-		if detail == "" {
-			detail = err.Error()
-		}
-		b.logErr("登录服务启动", err, "服务状态: "+detail)
-		return status, err
+	if err := b.svc.LoginEnsure(b.ctx); err != nil {
+		b.logErr("登录服务启动", err, "")
+		return map[string]any{"healthy": false, "error": err.Error()}, err
 	}
-	b.logf("登录服务已就绪（%s）", status.URL)
-	return status, nil
+	b.logf("授权服务已就绪（%s）", b.svc.Dump.BaseURL())
+	return map[string]any{"healthy": true, "url": b.svc.Dump.BaseURL()}, nil
 }
 
 func (b *Backend) StopLogin() any {
-	status := b.svc.LoginSvc.Stop(b.ctx)
-	b.logf("登录服务已停止")
-	return status
+	b.svc.LoginStop()
+	b.logf("授权服务已停止")
+	return map[string]any{"healthy": false, "stopping": true}
 }
 
 func (b *Backend) RefreshAccount() (any, error) {
@@ -454,9 +444,9 @@ func (b *Backend) QRCreate() (any, error) {
 	b.qrLastState = ""
 	b.mu.Unlock()
 	b.logf("正在生成登录二维码…")
-	result, err := b.svc.LoginSvc.QRCreate(b.ctx)
+	result, err := b.svc.LoginQRCreate(b.ctx)
 	if err != nil {
-		b.logErr("二维码生成", err, "请确认登录服务已启动且网络可用")
+		b.logErr("二维码生成", err, "请确认授权服务已启动且网络可用")
 		return nil, err
 	}
 	b.logf("新二维码已生成，等待微信扫描")
@@ -464,7 +454,7 @@ func (b *Backend) QRCreate() (any, error) {
 }
 
 func (b *Backend) QRPoll(session string) (any, error) {
-	value, err := b.svc.LoginSvc.QRPoll(b.ctx, session)
+	value, err := b.svc.LoginQRPoll(b.ctx, session)
 	if err != nil {
 		// Polling is high-frequency; only surface a failure once per state.
 		b.mu.Lock()
@@ -477,12 +467,10 @@ func (b *Backend) QRPoll(session string) (any, error) {
 		return nil, err
 	}
 	state := ""
-	if row, ok := value.(map[string]any); ok {
-		for _, key := range []string{"status", "state", "code", "message"} {
-			if v, ok := row[key].(string); ok && v != "" {
-				state = key + "=" + v
-				break
-			}
+	for _, key := range []string{"status", "state", "code", "message"} {
+		if v, ok := value[key].(string); ok && v != "" {
+			state = key + "=" + v
+			break
 		}
 	}
 	if state != "" {
@@ -498,15 +486,10 @@ func (b *Backend) QRPoll(session string) (any, error) {
 }
 
 func (b *Backend) QRConfirm(session string) (any, error) {
-	value, err := b.svc.LoginSvc.QRConfirm(b.ctx, session)
+	value, err := b.svc.LoginQRConfirm(b.ctx, session)
 	if err != nil {
 		b.logErr("扫码登录确认", err, "二维码可能已过期，请重新生成")
 		return nil, err
-	}
-	if account, ok := value.(map[string]any); ok {
-		if openid, ok := account["openid"].(string); ok && openid != "" {
-			b.svc.Config.Update(b.ctx, map[string]any{"selected_account": openid})
-		}
 	}
 	b.logf("扫码登录完成，账号已保存并设为当前账号")
 	return value, nil

@@ -46,7 +46,7 @@ func TestRuntimeStatusProcessInventory(t *testing.T) {
 func TestLoginStatusReportsServiceState(t *testing.T) {
 	p, _ := app.Resolve(t.TempDir())
 	cfg := config.New(filepath.Join(t.TempDir(), "config.json"))
-	if _, err := cfg.Update(context.Background(), map[string]any{"login_url": "http://127.0.0.1:1", "login_port": float64(1), "login_token": "fixture", "selected_account": "acct"}); err != nil {
+	if _, err := cfg.Update(context.Background(), map[string]any{"login_url": "http://127.0.0.1:1", "login_port": float64(1), "login_token": "fixture", "selected_account": "acct", "login_mode": "legacy"}); err != nil {
 		t.Fatal(err)
 	}
 	s := &Service{Paths: p, Config: cfg, Account: account.New(cfg), LoginSvc: loginsvc.New(p, cfg)}
