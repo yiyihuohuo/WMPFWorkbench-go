@@ -13,7 +13,6 @@ import (
 	"flag"
 	"fmt"
 	"net"
-	"net/http"
 	"os"
 	"regexp"
 	"strings"
@@ -56,8 +55,7 @@ type Backend struct {
 
 func (b *Backend) Startup(ctx context.Context) {
 	b.ctx = ctx
-	// Stream login-service and account-client diagnostics into the GUI log panel.
-	b.svc.LoginSvc.Logf = b.logf
+	// Stream account-client diagnostics into the GUI log panel.
 	b.svc.Account.Logf = b.logf
 	// The HTTP MCP endpoint in the clipboard config must actually listen, or
 	// clients report "fetch failed"; the GUI therefore owns its lifecycle.
@@ -262,24 +260,12 @@ func (b *Backend) SavePorts(loginPort, mcpPort int, bind string) (map[string]any
 	if bind != "127.0.0.1" && bind != "0.0.0.0" {
 		return nil, fmt.Errorf("MCP 监听地址只能是 127.0.0.1 或 0.0.0.0")
 	}
-	// Stop with the old settings first: after the update the URL points at the
-	// new port and the old service would no longer be reachable.
-	status := b.svc.LoginSvc.Status(b.ctx)
-	if status.Running {
-		b.svc.LoginSvc.Stop(b.ctx)
-		b.logf("登录服务已停止，准备应用新端口")
-	}
+	// The authorization sidecar owns its own port (dump_port); login_port is
+	// kept only for config compatibility and no longer starts a local service.
 	if _, err := b.svc.Config.Update(b.ctx, map[string]any{"login_port": float64(loginPort), "mcp_port": float64(mcpPort), "mcp_bind": bind}); err != nil {
 		return nil, err
 	}
-	b.logf("设置已保存：登录 %d / MCP %d（监听 %s）", loginPort, mcpPort, bind)
-	if status.Running {
-		if _, err := b.svc.LoginSvc.Ensure(b.ctx); err != nil {
-			b.logf("登录服务按新端口重启失败：%v", err)
-			return b.Config(), nil
-		}
-		b.logf("登录服务已按新端口重启")
-	}
+	b.logf("设置已保存：MCP %d（监听 %s）；授权服务端口由运行配置决定", mcpPort, bind)
 	// Apply the new MCP port/bind immediately instead of requiring a GUI restart.
 	values, _ := b.svc.Config.Read()
 	if values["mcp_enabled"] != false {
@@ -407,21 +393,19 @@ func (b *Backend) StopLogin() any {
 }
 
 func (b *Backend) RefreshAccount() (any, error) {
-	values, err := b.svc.Config.Read()
+	// The authorization sidecar refreshes its own session; checking the
+	// account simply reads its live public status (no legacy token involved).
+	st, err := b.svc.Dump.Status(b.ctx)
 	if err != nil {
+		b.logErr("账号检查", err, "请确认授权服务可用")
 		return nil, err
 	}
-	ref, _ := values["selected_account"].(string)
-	if ref == "" {
-		return map[string]any{"ok": false, "reason": "请先扫码登录并选择账号"}, nil
+	if st.Account == nil {
+		return map[string]any{"ok": false, "status": "no_account", "reason": "请先扫码登录"}, nil
 	}
-	result, err := b.svc.Account.Request(b.ctx, "/accounts/refresh", "POST", map[string]any{"ref": ref})
-	if err != nil {
-		b.logErr("账号检查", err, "账号票据可能已过期，请重新扫码")
-		return nil, err
-	}
-	b.logf("账号检查完成")
-	return result, nil
+	b.logf("账号检查完成：%s", st.Account.Status)
+	return map[string]any{"ok": st.Account.Online, "status": st.Account.Status,
+		"openid": st.Account.OpenID, "nickname": st.Account.NickName}, nil
 }
 
 func (b *Backend) SelectAccount(ref string) error {
@@ -432,17 +416,17 @@ func (b *Backend) SelectAccount(ref string) error {
 	return nil
 }
 
-// Avatar returns a data URI for the account's profile image. The image is
-// fetched by Go from the local login service; no token reaches the frontend.
+// Avatar returns the account's profile image URL from the authorization
+// sidecar. The frontend puts it directly in an <img src>.
 func (b *Backend) Avatar(ref string) (string, error) {
 	if strings.TrimSpace(ref) == "" {
 		return "", nil
 	}
-	raw, err := b.svc.Account.Avatar(b.ctx, ref)
-	if err != nil || len(raw) == 0 {
+	st, err := b.svc.Dump.Status(b.ctx)
+	if err != nil || st.Account == nil {
 		return "", err
 	}
-	return "data:" + http.DetectContentType(raw) + ";base64," + base64.StdEncoding.EncodeToString(raw), nil
+	return st.Account.Avatar, nil
 }
 
 func (b *Backend) QRCreate() (any, error) {
