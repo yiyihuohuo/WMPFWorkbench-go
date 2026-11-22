@@ -8,6 +8,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"strconv"
 	"sync"
 	"time"
 	"wmpfworkbench/internal/dumpclient"
@@ -36,6 +37,7 @@ type task struct {
 	result    dumpclient.DownloadResult
 	reason    string
 	cancel    context.CancelFunc
+	progress  dumpclient.Progress // real counters from the sidecar SSE stream
 }
 
 func (t *task) snapshot() map[string]any {
@@ -52,6 +54,17 @@ func (t *task) snapshot() map[string]any {
 	out := map[string]any{
 		"task_id": t.id, "state": t.state, "phase": t.phase,
 		"elapsed_ms": elapsed, "created_at": t.created.Unix(),
+	}
+	// Real progress from the sidecar event stream (package/reconstruction
+	// counters). Always present so the GUI can render a factual progress bar.
+	if t.progress.Total > 0 {
+		out["progress"] = map[string]any{
+			"done": t.progress.Done, "total": t.progress.Total,
+			"module": t.progress.Module, "stage": t.progress.Stage,
+			"message": t.progress.Message,
+		}
+	} else if t.progress.Message != "" {
+		out["progress"] = map[string]any{"stage": t.progress.Stage, "message": t.progress.Message}
 	}
 	if !t.finished.IsZero() {
 		out["finished_at"] = t.finished.Unix()
@@ -156,10 +169,31 @@ func (m *Manager) Start(ctx context.Context, o Options) (map[string]any, error) 
 			t.mu.Unlock()
 			return
 		}
+		// Subscribe before starting the download so no progress events are lost.
+		// The stream is lossy by design; only the latest structured counter is
+		// kept in the task snapshot.
+		evCtx, stopEvents := context.WithCancel(runCtx)
+		defer stopEvents()
+		go func() {
+			_ = m.client.SubscribeEvents(evCtx, func(p dumpclient.Progress) {
+				t.mu.Lock()
+				t.progress = p
+				switch p.Stage {
+				case "download":
+					t.phase = "下载分包 " + strconv.Itoa(p.Done) + "/" + strconv.Itoa(p.Total)
+				case "reconstruct":
+					t.phase = "解包重建 " + strconv.Itoa(p.Done) + "/" + strconv.Itoa(p.Total)
+				case "done":
+					t.phase = "下载完成，等待解包"
+				}
+				t.mu.Unlock()
+			})
+		}()
 		t.mu.Lock()
-		t.phase = "服务端下载并解包中（可能需要数十秒到数分钟）"
+		t.phase = "连接导出服务，等待分包列表"
 		t.mu.Unlock()
 		res, err := m.client.Download(runCtx, o)
+		stopEvents()
 		t.mu.Lock()
 		t.finished = time.Now()
 		if err != nil {

@@ -4,12 +4,14 @@
 package dumpclient
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"regexp"
 	"net"
 	"net/http"
 	"os"
@@ -20,6 +22,13 @@ import (
 	"sync"
 	"syscall"
 	"time"
+)
+
+var (
+	reDownload     = regexp.MustCompile(`downloading package (\d+)/(\d+):\s*(.+)$`)
+	reReconstruct  = regexp.MustCompile(`reconstructing (\d+)/(\d+):\s*(.+)$`)
+	reDownloaded   = regexp.MustCompile(`downloaded (\d+)/(\d+) package\(s\)`)
+	reUnpackFiles  = regexp.MustCompile(`unpack finished: (\d+) file\(s\)`)
 )
 
 const (
@@ -289,6 +298,71 @@ func (c *Client) Download(ctx context.Context, o DownloadOptions) (DownloadResul
 	// 15s http.Client.Timeout fires first and surfaces as "awaiting headers".
 	err := c.doTimeout(ctx, http.MethodPost, downloadPath, o, &d, 10*time.Minute)
 	return d, err
+}
+
+// Progress is a structured snapshot parsed from the sidecar's SSE event stream.
+// Done/Total refer to the real package (or reconstruction) counters published
+// by wxapkg-dump; Module is the item currently being processed.
+type Progress struct {
+	Done    int    `json:"done"`
+	Total   int    `json:"total"`
+	Module  string `json:"module"`
+	Message string `json:"message"`
+	Stage   string `json:"stage"` // download | reconstruct | done | other
+}
+
+// SubscribeEvents connects to the sidecar's SSE event stream and calls onEvent
+// for every line until ctx is cancelled. The stream is lossy by design; a slow
+// consumer never blocks the server. It is intended to run in its own goroutine.
+func (c *Client) SubscribeEvents(ctx context.Context, onEvent func(Progress)) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.opts.BaseURL+"/api/events", nil)
+	if err != nil { return err }
+	req.Header.Set("Accept", "text/event-stream")
+	if c.opts.AdminKey != "" { req.Header.Set("x-admin-key", c.opts.AdminKey) }
+	// SSE is long-lived: do not reuse the 15s client timeout.
+	cli := &http.Client{}
+	resp, err := cli.Do(req)
+	if err != nil { return err }
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("events 端点 HTTP %d", resp.StatusCode)
+	}
+	scanner := bufio.NewScanner(resp.Body)
+	scanner.Buffer(make([]byte, 16<<10), 1<<20)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if !strings.HasPrefix(line, "data:") { continue }
+		payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		var ev struct {
+			Level   string `json:"level"`
+			Message string `json:"message"`
+		}
+		if json.Unmarshal([]byte(payload), &ev) != nil { continue }
+		p := parseProgress(ev.Message)
+		p.Message = ev.Message
+		onEvent(p)
+	}
+	return scanner.Err()
+}
+
+// parseProgress turns human-readable sidecar events into counters. Known forms:
+//
+//	"downloading package 2/5: /app.wxapkg"   -> download 2/5
+//	"reconstructing 3/12: pages/index.js"    -> reconstruct 3/12
+//	"downloaded 5/5 package(s)"              -> done 5/5
+//	"unpack finished: 42 file(s)"            -> reconstruct (files)
+func parseProgress(msg string) Progress {
+	p := Progress{Stage: "other"}
+	if m := reDownload.FindStringSubmatch(msg); m != nil {
+		p.Stage = "download"; p.Done, _ = strconv.Atoi(m[1]); p.Total, _ = strconv.Atoi(m[2]); p.Module = m[3]
+	} else if m := reReconstruct.FindStringSubmatch(msg); m != nil {
+		p.Stage = "reconstruct"; p.Done, _ = strconv.Atoi(m[1]); p.Total, _ = strconv.Atoi(m[2]); p.Module = m[3]
+	} else if m := reDownloaded.FindStringSubmatch(msg); m != nil {
+		p.Stage = "done"; p.Done, _ = strconv.Atoi(m[1]); p.Total, _ = strconv.Atoi(m[2])
+	} else if m := reUnpackFiles.FindStringSubmatch(msg); m != nil {
+		p.Stage = "reconstruct"; p.Done, _ = strconv.Atoi(m[1]); p.Total = p.Done
+	}
+	return p
 }
 
 // ResolveExe returns the configured binary path (for diagnostics).

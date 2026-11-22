@@ -84,4 +84,48 @@ func TestDownloadValidationAndResult(t *testing.T) {
 	d, err := c.Download(context.Background(), DownloadOptions{AppID: "wx0000000000000006", Out: "/tmp/out"})
 	if err != nil { t.Fatal(err) }
 	if len(d.Packages) != 1 || d.Packages[0].Module != "__APP__" { t.Fatalf("result=%+v", d) }
-}
+	}
+
+	func TestParseProgressRealEvents(t *testing.T) {
+	cases := []struct {
+	msg            string
+	stage          string
+	done, total    int
+	module         string
+	}{
+	{"downloading package 2/5: /app.wxapkg", "download", 2, 5, "/app.wxapkg"},
+	{"reconstructing 3/12: pages/index.js", "reconstruct", 3, 12, "pages/index.js"},
+	{"downloaded 5/5 package(s)", "done", 5, 5, ""},
+	{"unpack finished: 42 file(s)", "reconstruct", 42, 42, ""},
+	}
+	for _, c := range cases {
+	p := parseProgress(c.msg)
+	if p.Stage != c.stage || p.Done != c.done || p.Total != c.total || p.Module != c.module {
+	t.Fatalf("parse(%q) = %+v, want stage=%s done=%d total=%d module=%s",
+	c.msg, p, c.stage, c.done, c.total, c.module)
+	}
+	}
+	}
+
+	func TestSubscribeEventsParsesSSE(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Write([]byte("data: {\"level\":\"info\",\"message\":\"downloading package 1/3: /a.wxapkg\"}\n\n"))
+	w.Write([]byte("data: {\"level\":\"info\",\"message\":\"downloaded 3/3 package(s)\"}\n\n"))
+	w.(http.Flusher).Flush()
+	<-r.Context().Done()
+	}))
+	defer srv.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	got := make(chan Progress, 4)
+	go func() { _ = New(Options{BaseURL: srv.URL}).SubscribeEvents(ctx, func(p Progress) { got <- p }) }()
+	p1 := <-got
+	if p1.Stage != "download" || p1.Done != 1 || p1.Total != 3 {
+	t.Fatalf("first event = %+v", p1)
+	}
+	p2 := <-got
+	if p2.Stage != "done" || p2.Done != 3 {
+	t.Fatalf("second event = %+v", p2)
+	}
+	cancel()
+	}

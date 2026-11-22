@@ -154,6 +154,39 @@ func TestMintRejectsInvalidTicketWithoutPublishing(t *testing.T) {
 		t.Fatal("invalid ticket accepted")
 	}
 	if _, err = os.Stat(dest); !os.IsNotExist(err) {
-		t.Fatalf("published directory before validation: %v", err)
+	        t.Fatalf("published directory before validation: %v", err)
 	}
-}
+	}
+
+	func TestPostRetriesTransportFailure(t *testing.T) {
+	var calls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	calls++
+	if calls == 1 {
+	// Simulate a dropped connection (transport error), not a 5xx.
+	hj, ok := w.(http.Hijacker)
+	if ok {
+	conn, _, _ := hj.Hijack()
+	conn.Close()
+	return
+	}
+	w.WriteHeader(http.StatusInternalServerError)
+	return
+	}
+	body, _ := io.ReadAll(r.Body)
+	if !strings.Contains(string(body), "pkg_name") {
+	t.Errorf("retry lost request body: %s", body)
+	}
+	io.WriteString(w, `{"code":0,"data":{"apps":{}}}`)
+	}))
+	defer srv.Close()
+	client := New(nil)
+	client.Endpoint = srv.URL
+	session := account.Session{Pairs: map[string]string{"guid": "g"}}
+	res, err := client.post(context.Background(), session, "/pc_yyb_client/pcyyb_get_app_detail",
+	map[string]any{"pkg_name": testID}, "pc_yyb", "", "")
+	if err != nil { t.Fatal(err) }
+	if res == nil || calls != 2 {
+	t.Fatalf("expected 2 attempts (transport fail then success), got calls=%d res=%v", calls, res)
+	}
+	}

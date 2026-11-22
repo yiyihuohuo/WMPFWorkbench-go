@@ -96,9 +96,34 @@ func (c *Client) post(ctx context.Context, session account.Session, path string,
 		hash := md5.Sum([]byte(string(raw) + ts + salt + key + nonce.String()))
 		req.Header.Set("Ual-Access-Signature", hex.EncodeToString(hash[:]))
 	}
-	res, err := c.HTTP.Do(req)
-	if err != nil {
-		return nil, errors.New("启动服务连接失败或请求超时")
+	// The app-store endpoints are slow and flaky (observed 8-17s per call, with
+	// occasional timeouts). Retry transport failures and 5xx with a fresh body
+	// and nonce — a timeout must not fail the whole launch. Business errors
+	// (4xx / non-zero code) are returned immediately: retrying them is useless.
+	var res *http.Response
+	for attempt := 0; attempt < 3; attempt++ {
+		if attempt > 0 {
+			req.Body = io.NopCloser(bytes.NewReader(raw))
+			req.GetBody = func() (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(raw)), nil }
+		}
+		res, err = c.HTTP.Do(req)
+		if err == nil && res.StatusCode < 500 {
+			break
+		}
+		if res != nil {
+			res.Body.Close()
+		}
+		if attempt == 2 {
+			if err != nil {
+				return nil, fmt.Errorf("启动服务连接失败或请求超时（重试3次）: %w", err)
+			}
+			return nil, fmt.Errorf("启动服务 HTTP %d（重试3次）", res.StatusCode)
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(time.Duration(attempt+1) * 500 * time.Millisecond):
+		}
 	}
 	defer res.Body.Close()
 	if res.StatusCode != 200 {

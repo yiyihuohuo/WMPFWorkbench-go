@@ -977,16 +977,26 @@ async function pollExport(taskId) {
   const btn = $('exportBtn');
   btn.disabled = true; btn.textContent = '导出中…';
   const t0 = Date.now();
-  let ticks = 0;
   while (true) {
     try {
       const st = await api.ExportStatus('status', taskId, 1);
       const state = st && st.state || 'unknown';
       const elapsed = st && st.elapsed_ms ? Math.round(st.elapsed_ms / 1000) : Math.round((Date.now() - t0) / 1000);
-      const bar = '█'.repeat(Math.min(20, ticks % 20 + 1)) + '░'.repeat(Math.max(0, 19 - (ticks % 20)));
+      // Real progress from the sidecar SSE stream: done/total packages or files.
+      const pr = st && st.progress || {};
+      let bar, detail;
+      if (pr.total > 0) {
+        const pct = Math.min(100, Math.round(pr.done / pr.total * 100));
+        const filled = Math.round(pct / 5);
+        bar = '[' + '█'.repeat(filled) + '░'.repeat(20 - filled) + '] ' + pct + '%';
+        detail = pr.done + '/' + pr.total + (pr.stage === 'reconstruct' ? ' 个文件' : ' 个分包') + (pr.module ? ' · ' + pr.module : '');
+      } else {
+        bar = '[░░░░░░░░░░░░░░░░░░░░] --';
+        detail = pr.message || '正在获取分包清单…';
+      }
       if (state === 'queued' || state === 'running') {
-        out.textContent = '[' + bar + '] ' + (st.phase || '处理中') + ' · 已用 ' + elapsed + 's\n（服务端下载解包中，请耐心等待）';
-        status('导出进行中：' + (st.phase || state), 'busy');
+        out.textContent = bar + ' ' + detail + '\n' + (st.phase || '处理中') + ' · 已用 ' + elapsed + 's';
+        status('导出进行中：' + detail, 'busy');
       } else if (state === 'done') {
         out.textContent = '✓ 导出完成 · 用时 ' + elapsed + 's\n' + JSON.stringify(st.result || {}, null, 2);
         status('导出完成', 'ok');
@@ -1009,8 +1019,7 @@ async function pollExport(taskId) {
       btn.disabled = false; btn.textContent = '导出此小程序包';
       return;
     }
-    ticks++;
-    await new Promise(r => setTimeout(r, 1500));
+    await new Promise(r => setTimeout(r, 1000));
   }
 }
 
