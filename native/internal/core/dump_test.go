@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 	"wmpfworkbench/internal/app"
 	"wmpfworkbench/internal/config"
 	"wmpfworkbench/internal/dumpclient"
@@ -33,6 +34,11 @@ func TestLoginQRCreateMapsFields(t *testing.T) {
 	if q["session_id"] != "sid-1" || q["image_base64"] != "data:image/jpeg;base64,AAAA" {
 		t.Fatalf("unmapped fields: %+v", q)
 	}
+	// The GUI countdown uses expires_at (absolute ms) + ttl_seconds; missing
+	// either renders NaN:NaN.
+	exp, ok := q["expires_at"].(int64)
+	if !ok || exp <= time.Now().UnixMilli() { t.Fatalf("bad expires_at: %v", q["expires_at"]) }
+	if q["ttl_seconds"] != 240 { t.Fatalf("bad ttl_seconds: %v", q["ttl_seconds"]) }
 }
 
 func TestLoginQRPollPersistsOpenID(t *testing.T) {

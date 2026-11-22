@@ -262,10 +262,10 @@ progress::-webkit-progress-value{background:var(--accent)}
         </div>
         <div class="card" style="margin-top:12px">
           <h2 class="cardTitle">导出小程序包（任意 AppID）</h2>
-          <p class="muted small" style="margin:-4px 0 10px">从远程服务下载完整小程序包（wxapkg）与可导入 DevTools 的工程；无需先在本机打开小程序。</p>
+          <p class="muted small" style="margin:-4px 0 10px">从远程服务下载完整小程序包（wxapkg）；无需先在本机打开小程序。</p>
           <div class="row">
-            <input class="grow" id="exportAppid" placeholder="wx 开头的 18 位 AppID（或填下方原始 ID）">
-            <input id="exportUsername" placeholder="原始 ID gh_…（与 AppID 二选一）" style="width:210px">
+            <input class="grow" id="exportAppid" placeholder="wx 开头的 18 位 AppID（与原始 ID 二选一）">
+            <input class="grow" id="exportUsername" placeholder="原始 ID gh_…（与 AppID 二选一）">
           </div>
           <div class="row" style="margin-top:8px">
             <span class="muted small">导出目录</span>
@@ -273,10 +273,10 @@ progress::-webkit-progress-value{background:var(--accent)}
             <button id="saveExportDir" title="保存为默认导出目录">保存目录</button>
             <button id="pickExportDir" title="选择目录">浏览…</button>
           </div>
-          <p class="muted small" style="margin:5px 0 10px">当前导出目录：<span id="exportDirCurrent" class="pill">读取中…</span></p>
+          <p class="muted small" style="margin:5px 0 10px">当前导出目录：<span id="exportDirCurrent" class="pill">读取中…</span>（未配置时默认为程序目录下的 out\wxapkg-export）</p>
           <div class="row" style="margin-bottom:8px">
-            <label class="muted small">版本：<select id="exportVersionType"><option value="0">正式版</option><option value="1">体验版</option><option value="2">开发版</option><option value="999">预览版</option></select></label>
-            <input id="exportVersion" placeholder="版本号（可选）" style="width:120px">
+            <label class="muted small">版本：<select id="exportVersionType" title="选择小程序发布版本"><option value="0">正式版</option><option value="1">体验版</option><option value="2">开发版</option><option value="999">预览版</option></select></label>
+            <input id="exportVersion" placeholder="版本号（可选，留空取最新）" style="width:180px" title="指定版本号；留空则下载该类型的最新版本">
             <label class="check"><input type="checkbox" id="exportUnpack" checked>解包为工程</label>
             <label class="check"><input type="checkbox" id="exportAll">全量资源包</label>
             <label class="check"><input type="checkbox" id="exportBeautify">美化代码</label>

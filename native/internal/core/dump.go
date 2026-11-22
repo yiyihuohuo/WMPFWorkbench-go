@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 	"wmpfworkbench/internal/app"
 	"wmpfworkbench/internal/config"
 	"wmpfworkbench/internal/dumpclient"
@@ -107,8 +108,12 @@ func (s *Service) LoginQRCreate(ctx context.Context) (map[string]any, error) {
 	if err != nil { return nil, err }
 	img := q.QRImage
 	if img != "" && !strings.HasPrefix(img, "data:") { img = "data:image/png;base64," + img }
+	ttl := q.ExpiresIn
+	if ttl <= 0 { ttl = 240 }
 	return map[string]any{"session_id": q.SessionID, "image_base64": img,
-		"qr_content": q.QRContent, "expires_in": q.ExpiresIn, "healthy": true}, nil
+		"qr_content": q.QRContent, "expires_in": q.ExpiresIn,
+		"ttl_seconds": ttl, "expires_at": time.Now().Add(time.Duration(ttl)*time.Second).UnixMilli(),
+		"healthy": true}, nil
 }
 
 // LoginQRPoll polls QR state and maps it to the GUI's legacy status shape.

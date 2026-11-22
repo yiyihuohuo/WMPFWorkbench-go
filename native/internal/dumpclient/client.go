@@ -207,6 +207,13 @@ func (c *Client) Stop() {
 }
 
 func (c *Client) do(ctx context.Context, method, path string, in, out any) error {
+	return c.doTimeout(ctx, method, path, in, out, 0)
+}
+
+// doTimeout runs a request with an optional per-call timeout override. The
+// QR check endpoint is a server-side long poll (~15s) and needs more than the
+// default client timeout.
+func (c *Client) doTimeout(ctx context.Context, method, path string, in, out any, timeout time.Duration) error {
 	var rdr io.Reader
 	if in != nil {
 		b, err := json.Marshal(in)
@@ -217,7 +224,13 @@ func (c *Client) do(ctx context.Context, method, path string, in, out any) error
 	if err != nil { return err }
 	if in != nil { req.Header.Set("Content-Type", "application/json") }
 	if c.opts.AdminKey != "" { req.Header.Set("x-admin-key", c.opts.AdminKey) }
-	resp, err := c.http.Do(req)
+	cli := c.http
+	if timeout > 0 {
+		clone := *c.http
+		clone.Timeout = timeout
+		cli = &clone
+	}
+	resp, err := cli.Do(req)
 	if err != nil { return err }
 	defer resp.Body.Close()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 32<<20))
@@ -254,10 +267,11 @@ func (c *Client) LoginQR(ctx context.Context) (LoginQR, error) {
 	return q, err
 }
 
-// CheckQR polls a QR login session.
+// CheckQR polls a QR login session. The server implements this as a long poll
+// (~15s per call), so it needs a longer client timeout than regular endpoints.
 func (c *Client) CheckQR(ctx context.Context, sessionID string) (LoginCheck, error) {
 	var s LoginCheck
-	err := c.do(ctx, http.MethodPost, loginCheck, map[string]any{"sessionId": sessionID}, &s)
+	err := c.doTimeout(ctx, http.MethodPost, loginCheck, map[string]any{"sessionId": sessionID}, &s, 60*time.Second)
 	return s, err
 }
 

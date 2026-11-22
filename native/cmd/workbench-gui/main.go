@@ -51,6 +51,7 @@ type Backend struct {
 	mcpDone   chan struct{}
 	skipMCP   bool // tests set this to avoid launching a real listener
 	qrLastState string
+	loginState  string // last account-state signature; avoids log spam every 5s
 }
 
 func (b *Backend) Startup(ctx context.Context) {
@@ -361,25 +362,30 @@ func (b *Backend) LoginStatus() (any, error) {
 		return out, err
 	}
 	if row, ok := out.(map[string]any); ok {
-		if msg, ok := row["error"].(string); ok && msg != "" {
-			b.logf("登录状态异常：%s", msg)
-		}
 		accounts, _ := row["accounts"].([]any)
-		switch {
-		case len(accounts) == 0:
-			b.logf("账号列表为空：请确认已扫码登录，或查看上方登录状态异常原因")
-		default:
-			ids := make([]string, 0, len(accounts))
-			for _, item := range accounts {
-				if acc, ok := item.(map[string]any); ok {
-					if nick, ok := acc["nickname"].(string); ok && nick != "" {
-						ids = append(ids, nick)
-					} else if id, ok := acc["openid"].(string); ok && id != "" {
-						ids = append(ids, nick)
-					}
-				}
+		ids := make([]string, 0, len(accounts))
+		for _, item := range accounts {
+			if acc, ok := item.(map[string]any); ok {
+				nick, _ := acc["nickname"].(string)
+				openid, _ := acc["openid"].(string)
+				if nick != "" { ids = append(ids, nick) } else if openid != "" { ids = append(ids, openid) }
 			}
-			b.logf("账号列表已加载：共 %d 个（%s）", len(accounts), strings.Join(ids, ", "))
+		}
+		// One signature per state; the UI refreshes every 5s, so logging on
+		// every poll would flood the panel with identical lines.
+		state := strings.Join(ids, ",")
+		if msg, ok := row["error"].(string); ok && msg != "" { state = "error:" + msg }
+		b.mu.Lock()
+		changed := b.loginState != state
+		b.loginState = state
+		b.mu.Unlock()
+		if changed {
+			switch {
+			case len(accounts) == 0:
+				b.logf("账号列表为空：请确认已扫码登录，或查看上方登录状态异常原因")
+			default:
+				b.logf("账号列表已加载：共 %d 个（%s）", len(accounts), strings.Join(ids, ", "))
+			}
 		}
 	}
 	return out, nil
