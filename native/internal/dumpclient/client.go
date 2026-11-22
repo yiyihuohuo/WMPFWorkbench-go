@@ -283,9 +283,11 @@ func (c *Client) Download(ctx context.Context, o DownloadOptions) (DownloadResul
 	if o.Out == "" { return d, errors.New("导出目录不能为空") }
 	if o.Concurrency < 1 || o.Concurrency > 10 { o.Concurrency = 3 }
 	// The sidecar's HTTP call is synchronously blocking; use a generous timeout.
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 	defer cancel()
-	err := c.do(ctx, http.MethodPost, downloadPath, o, &d)
+	// NOTE: must use doTimeout (client-level), not just ctx — the default
+	// 15s http.Client.Timeout fires first and surfaces as "awaiting headers".
+	err := c.doTimeout(ctx, http.MethodPost, downloadPath, o, &d, 10*time.Minute)
 	return d, err
 }
 
