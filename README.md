@@ -46,7 +46,7 @@
 
 ---
 
-## ⚠️ 能力边界（务必先读）
+## 提示
 
 <div align="center">
 
@@ -84,33 +84,98 @@
 
 ## 界面预览
 
+以下截图均来自 1.0.5 正式版本，使用默认窗口尺寸。
+
 <div align="center">
 
 ### 运行概览
-服务状态、会话状态与 MCP 配置一键复制；深色/浅色主题自动跟随系统
+服务状态、会话状态与 MCP 配置一键复制
 
 <img src="docs/images/wx_00.png" alt="运行概览" width="860">
 
 <br><br>
 
-### 搜索与打开
-应用宝在线搜索；已收录 AppID 可直启，未收录 AppID 通过二跳打开并进入可调试 runtime
+### 扫码与账号
+扫码登录后的账号状态与摘要信息
 
-<img src="docs/images/wx_01.png" alt="搜索与打开" width="860">
+<img src="docs/images/wx_01.png" alt="扫码与账号" width="860">
 
 <br><br>
 
-### 动态分析
-云函数、Userscript、wx API、路由地图与敏感扫描集中管理
+### 搜索与打开
+应用宝在线搜索；已收录 AppID 直启，未收录 AppID 走二跳
 
-<img src="docs/images/wx_02.png" alt="动态分析" width="860">
+<img src="docs/images/wx_02.png" alt="搜索与打开" width="860">
+
+<br><br>
+
+### 在线搜索结果
+关键词搜索返回 AppID、名称、类型与匹配方式
+
+<img src="docs/images/wx_03.png" alt="在线搜索结果" width="860">
+
+<br><br>
+
+### 启动后的会话
+二跳目标激活后显示 `debug_ready` 与调试入口
+
+<img src="docs/images/wx_04.png" alt="启动后的会话" width="860">
+
+<br><br>
+
+### 云函数捕获
+展示真实函数名、参数、返回值与耗时，支持显式重放
+
+<img src="docs/images/wx_05.png" alt="云函数捕获" width="860">
+
+<br><br>
+
+### Userscript
+持久脚本保存后按 AppID 自动注入
+
+<img src="docs/images/wx_06.png" alt="Userscript" width="860">
 
 <br><br>
 
 ### wx API 抓包
 按 HTTP 语义展示请求/响应，支持筛选、排序、分页、批量删除与重放
 
-<img src="docs/images/wx_03.png" alt="wx API 抓包" width="860">
+<img src="docs/images/wx_07.png" alt="wx API 抓包" width="860">
+
+<br><br>
+
+### 路由地图
+主包/分包路由、分类、搜索与导航控制
+
+<img src="docs/images/wx_08.png" alt="路由地图" width="860">
+
+<br><br>
+
+### 敏感扫描
+默认扫描当前小程序源码，支持规则编辑与 HTML 报告
+
+<img src="docs/images/wx_09.png" alt="敏感扫描" width="860">
+
+<br><br>
+
+### MCP 工具面板
+40 项工具可搜索、分组、逐项或批量开关
+
+<img src="docs/images/wx_10.png" alt="MCP 工具面板" width="860">
+
+<br><br>
+
+### 运行日志
+启动链、登录状态与错误诊断集中展示
+
+<img src="docs/images/wx_11.png" alt="运行日志" width="860">
+
+<br><br>
+
+### 关于
+版本、主题切换与免责声明
+
+<img src="docs/images/wx_12.png" alt="关于" width="860">
 
 </div>
 
@@ -123,7 +188,7 @@
 | 依赖 | 说明 |
 |:---|:---|
 | Windows 10/11 x64 | 仅支持 Windows |
-| **WMPF 运行时 5.10.7300.414** | **必需但不在本仓库分发**；可从专用仓库 [5.10.7300.414](https://github.com/yiyihuohuo/5.10.7300.414) 下载，详见下方 |
+| **WMPF 运行时 5.10.7300.414** | **必需但不在本仓库分发**；可从专用仓库 [WMPF-Runtime-5.10.7300.414](https://github.com/yiyihuohuo/WMPF-Runtime-5.10.7300.414) 下载，详见下方 |
 | Go 1.23+ | 构建登录服务与 MCP/GUI |
 | Visual Studio 2022 x64 C++ 工具链 | 构建 C++ 宿主与观测 worker（vswhere 自动查找） |
 | WebView2 Runtime | GUI 使用，系统通常已自带 |
@@ -133,7 +198,7 @@
 ### 2. 运行时依赖（重要）
 
 <details open>
-<summary>本项目依赖一整套 WMPF 运行时（约 386 MB），<b>不随主仓库或 Release 分发</b>；已单独发布到 https://github.com/yiyihuohuo/5.10.7300.414 。</summary>
+<summary>本项目依赖一整套 WMPF 运行时（约 386 MB），<b>不随主仓库或 Release 分发</b>；已单独发布到 https://github.com/yiyihuohuo/WMPF-Runtime-5.10.7300.414 。</summary>
 
 **先澄清一个容易困惑的点：目录里有 `WeChatAppEx.exe`、`flue.dll`、`wxgame_client.dll` 等微信名字的文件，为什么还说"从应用宝 PC 获取"？**
 
@@ -152,7 +217,7 @@ WMPF 是微信团队开发的"小程序容器"引擎，以微信命名，但作�
 
 获取步骤：
 
-1. 打开运行库专用仓库：https://github.com/yiyihuohuo/5.10.7300.414 ；
+1. 打开运行库专用仓库：https://github.com/yiyihuohuo/WMPF-Runtime-5.10.7300.414 ；
 2. 下载仓库内容（约 386 MB，含 `host\` 与 `runtime\`）；`flue.dll` 使用 Git LFS 存储；
 3. 将该目录整体放到工作台根目录的 `runtime\5.10.7300.414\`。
 
@@ -207,10 +272,11 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File native\build-release.ps1
 
 ## 已知限制
 
-- **仅支持应用宝渠道收录的小程序**（搜索与启动均如此），详见上方 [能力边界](#️-能力边界务必先读)。
-- `f27` 启动信封由应用宝服务端签发，本项目不含也无法生成服务端密钥。
+- 在线搜索与包导出依赖应用宝服务；未收录小程序无法通过在线搜索发现，但可通过 `launch(unlisted appid)` 二跳启动，前提是配置了可用的 `bridge_appid`。
+- `f27` 启动信封由应用宝服务端签发，本项目不含也无法生成服务端密钥；直启流程仍需应用宝服务端签发。
+- WMPF Runtime 版本与文件 SHA 精确绑定，其他版本不能替代；请从专用运行库仓库获取匹配版本。
 - 部分小程序的 worker、插件与媒体能力以实际兼容情况为准；还原产物是运行时结果，不等同官方工程。
-- 当前运行环境由已初始化环境整理，不能据此宣称全新环境初始化、全天自然到期保活、任意小程序 / AppService / worker / 插件 / 媒体 / 跨版本均通过。
+- 当前仅支持 Windows x64，依赖 WebView2、WMPF Runtime 与 `wxapkg-dump` sidecar。
 
 ---
 

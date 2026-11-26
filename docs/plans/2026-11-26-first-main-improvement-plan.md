@@ -10,7 +10,7 @@ after v1.1.0 and has no LICENSE.
 Current project:
 
 ```text
-Go + Wails + owned WMPF runtime + CDP bridge + 19 MCP tools
+Go + Wails + owned WMPF runtime + CDP bridge + 40 MCP tools
 ```
 
 First-main:
@@ -39,6 +39,30 @@ Key First-main evidence:
 <workspace>\First-main\src\wxapkg.py
 <workspace>\First-main\gui.py
 ```
+
+## 2a. Additional reference projects
+
+The following projects were also used as **interaction/design references only**.
+No code, assets, protocol implementation, or product behavior was copied from
+them.
+
+```text
+Burp Suite / Yakit
+  - request/response split view
+  - raw HTTP request editing
+  - method/host/path/status/size columns
+  - filtering, sorting, pagination, batch selection
+  - explicit replay workflow
+
+Chrome DevTools frontend
+  - inspector.html served over local HTTP
+  - ws=<endpoint> query parameter for attaching to a CDP target
+  - default-browser launch instead of internal devtools:// scheme
+```
+
+These references informed the wx API and cloud function capture UI and the
+current DevTools launch flow. The implementation remains Go/CDP/Wails based and
+uses the current project's theme, state model, and security constraints.
 
 The current project already has:
 
