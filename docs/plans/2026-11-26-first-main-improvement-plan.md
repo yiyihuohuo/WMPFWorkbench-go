@@ -40,29 +40,24 @@ Key First-main evidence:
 <workspace>\First-main\gui.py
 ```
 
-## 2a. Additional reference projects
+## 2a. GUI design reference
 
-The following projects were also used as **interaction/design references only**.
-No code, assets, protocol implementation, or product behavior was copied from
-them.
+The GUI layout and several capability ideas in this plan reference **First-main
+only**. Specifically:
 
 ```text
-Burp Suite / Yakit
-  - request/response split view
-  - raw HTTP request editing
-  - method/host/path/status/size columns
-  - filtering, sorting, pagination, batch selection
-  - explicit replay workflow
-
-Chrome DevTools frontend
-  - inspector.html served over local HTTP
-  - ws=<endpoint> query parameter for attaching to a CDP target
-  - default-browser launch instead of internal devtools:// scheme
+First-main GUI
+  - grouped navigation and page structure
+  - cloud function capture/replay panel
+  - persistent Userscript management
+  - categorized wx API capture
+  - route map and navigation guard
+  - sensitive scanning and HTML report
 ```
 
-These references informed the wx API and cloud function capture UI and the
-current DevTools launch flow. The implementation remains Go/CDP/Wails based and
-uses the current project's theme, state model, and security constraints.
+No code, assets, protocol implementation, or product behavior was copied from
+First-main. The current implementation remains Go/CDP/Wails based and uses the
+current project's theme, state model, and security constraints.
 
 The current project already has:
 
@@ -70,7 +65,7 @@ The current project already has:
 CDP bridge / protobuf wire codec
 event-driven launch readiness
 login error classification
-19 MCP tools
+40 MCP tools
 two-hop arbitrary mini program launch
 GUI theme and copy helpers
 wxapkg decrypt/export tasks
