@@ -1,0 +1,132 @@
+package hostruntime
+
+import (
+	"context"
+	"errors"
+	"testing"
+	"time"
+)
+
+func waitReadySession(appid string) (*Manager, *session) {
+	s := &session{
+		id:           "s1",
+		appid:        appid,
+		state:        "starting",
+		ctx:          context.Background(),
+		ready:        make(chan struct{}),
+		readyFailed:  make(chan struct{}),
+		readyChanged: make(chan struct{}, 1),
+		probing:      true,
+	}
+	m := &Manager{rows: map[string]*session{s.id: s}}
+	return m, s
+}
+
+func loginOK(s *session) {
+	s.loginOK = true
+	s.login = true
+}
+
+func TestWaitReadyNeedsAppStartAndSetup(t *testing.T) {
+	m, s := waitReadySession("wx1644df8e4fe6f725")
+	loginOK(s)
+	m.event(s, "script", map[string]any{"event": "devtools.Start", "appid": s.appid})
+	m.event(s, "miniapp.setup", map[string]any{})
+	out, err := m.WaitReady(context.Background(), s.id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	row, ok := out.(map[string]any)
+	if !ok || row["preload_slot"] != "" {
+		t.Fatalf("unexpected ready row: %#v", out)
+	}
+}
+
+func TestAutoLoginHostStdoutSatisfiesLoginState(t *testing.T) {
+	m, s := waitReadySession("wx1644df8e4fe6f725")
+	m.event(s, "host.stdout", map[string]any{"line": "[authcb] Login type=1 error=0 resp=000001 len=4"})
+	m.event(s, "script", map[string]any{"event": "devtools.Start", "appid": s.appid})
+	m.event(s, "miniapp.setup", map[string]any{})
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	out, err := m.WaitReady(ctx, s.id)
+	if err != nil {
+		t.Fatalf("AutoLogin host.stdout must satisfy loginOK: %v", err)
+	}
+	if row := out.(map[string]any); row["login_ok"] != true {
+		t.Fatalf("login_ok not set: %#v", row)
+	}
+}
+
+func TestWaitReadyRecordsPreloadSlot(t *testing.T) {
+	m, s := waitReadySession("wx1644df8e4fe6f725")
+	loginOK(s)
+	m.event(s, "script", map[string]any{"event": "devtools.Start", "appid": "preload-6"})
+	m.event(s, "script", map[string]any{"event": "devtools.Start", "appid": s.appid})
+	m.event(s, "miniapp.setup", map[string]any{})
+	out, err := m.WaitReady(context.Background(), s.id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if row := out.(map[string]any); row["preload_slot"] != "preload-6" {
+		t.Fatalf("preload_slot=%v", row["preload_slot"])
+	}
+}
+
+func TestWaitReadyUsesCDPFallback(t *testing.T) {
+	m, s := waitReadySession("wx1644df8e4fe6f725")
+	loginOK(s)
+	s.websocket = "ws://127.0.0.1:62000"
+	m.CDPProbe = func(ctx context.Context, ws string) bool { return ws == s.websocket }
+	m.event(s, "script", map[string]any{"event": "devtools.Start", "appid": s.appid})
+	out, err := m.WaitReady(context.Background(), s.id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	row := out.(map[string]any)
+	if row["cdp_ok"] != true || row["setup_seen"] != false {
+		t.Fatalf("expected CDP fallback readiness, got %#v", row)
+	}
+}
+
+func TestWaitReadyFailsOnPreload7(t *testing.T) {
+	m, s := waitReadySession("wx1644df8e4fe6f725")
+	m.event(s, "script", map[string]any{"event": "devtools.Start", "appid": "preload-7"})
+	_, err := m.WaitReady(context.Background(), s.id)
+	var failure *ReadyFailure
+	if !errors.As(err, &failure) || failure.Reason != "bad_preload" {
+		t.Fatalf("expected bad_preload failure, got %v", err)
+	}
+}
+
+func TestWaitReadyFailsOnRepeatedHostReset(t *testing.T) {
+	m, s := waitReadySession("wx1644df8e4fe6f725")
+	for i := 0; i < 3; i++ {
+		m.event(s, "script", map[string]any{"event": "host.Reset"})
+	}
+	_, err := m.WaitReady(context.Background(), s.id)
+	var failure *ReadyFailure
+	if !errors.As(err, &failure) || failure.Reason != "repeated_reset" {
+		t.Fatalf("expected repeated_reset failure, got %v", err)
+	}
+}
+
+func TestWaitReadyFailsOnHostTimeout(t *testing.T) {
+	m, s := waitReadySession("wx1644df8e4fe6f725")
+	m.event(s, "script", map[string]any{"event": "host.EnsureConnected.timeout"})
+	_, err := m.WaitReady(context.Background(), s.id)
+	var failure *ReadyFailure
+	if !errors.As(err, &failure) || failure.Reason != "host_timeout" {
+		t.Fatalf("expected host_timeout failure, got %v", err)
+	}
+}
+
+func TestWaitReadyFailsOnLoginFailure(t *testing.T) {
+	m, s := waitReadySession("wx1644df8e4fe6f725")
+	m.event(s, "script", map[string]any{"event": "ilink.ThirdAppLogin.result", "error_code": float64(-2)})
+	_, err := m.WaitReady(context.Background(), s.id)
+	var failure *ReadyFailure
+	if !errors.As(err, &failure) || failure.Reason != "login_failed" {
+		t.Fatalf("expected login_failed failure, got %v", err)
+	}
+}

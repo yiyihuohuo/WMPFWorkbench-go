@@ -1,0 +1,108 @@
+{
+  "wmpf://reference/sdk": {
+    "exports": {
+      "Initialize": "string_view(config_json)  RVA 0x2b8d0",
+      "LaunchWeApp": "string_view  RVA 0x2bde0  **空壳：仅构造局部 std::string 后析构，返回全局标志位，零副作用**",
+      "DoAction": "(string_view action_json, string_view click_response) RVA 0x2ba60 -> 0x2f8d0 -> ams_sdk::action::DoAction 0x3300",
+      "GetSdkInfo/ReleaseSdkInfo": "无参返回 char* / 判空后 free",
+      "GetExtraInfo": "(int type, string_view) RVA 0x2bff0",
+      "GetSDKLastErrorContent": "返回 JSON {\"error_code\":..,\"error_msg\":\"..\"}"
+    },
+    "required_config": {
+      "path": "运行时目录（缺之则 1003 the input path is invalid）"
+    },
+    "config_keys": {
+      "path": "str",
+      "is_debug": "bool",
+      "weapp_support_type": "int",
+      "wmpf_type": "int",
+      "new_version_wmpf": "int",
+      "use_sdk_logger": "int",
+      "wechat_extra_status": "int",
+      "network_type": "int",
+      "wmpf_launcher": "fnptr",
+      "yyb_app_launcher": "fnptr",
+      "url_launcher": "fnptr",
+      "action_callback": "fnptr",
+      "app_pkg": "str",
+      "app_version": "str",
+      "wmpf_sdk_version": "str",
+      "device_id": "str",
+      "user_id": "str",
+      "ignore_error": "int",
+      "create_directory": "int",
+      "close_ginkgo_when_uninitialized": "int",
+      "need_union_code": "int"
+    },
+    "injected_launcher_abi": "launcher(const char* utf8, size_t len) // std::string_view 拆 rcx/rdx，值是十进制地址字符串，由 0x2c4f0 的 std::stoull(base=10) 解析",
+    "action_envelope": {
+      "top": [
+        "common_data",
+        "jump_link_info",
+        "wmpf_install_status",
+        "extra_data",
+        "click_response_data",
+        "jump_actions[]"
+      ],
+      "action_type": {
+        "1": [
+          "url",
+          "web_data"
+        ],
+        "3": [
+          "weapp",
+          "wx_link_data"
+        ],
+        "4": [
+          "download",
+          "download_data"
+        ],
+        "5": [
+          "qrcode",
+          "qrcode_data"
+        ]
+      },
+      "weapp_item": "wx_link_data.ext_info{appid, username, url, type, wechat_app_scheme}",
+      "launch_param": "WeAppWmpfAction::LaunchApplet 组装 {app_id,path,type,extra}",
+      "gates": [
+        "the weapp path is empty!!!",
+        "the wmpf doesn't authorized, it need not launch applet",
+        "launch weapp failed with inject function!!!!",
+        "the owner does not support jump to we app, please check it!!"
+      ]
+    },
+    "error_codes": {
+      "1001": "the input param is invalid! / the init param json length is less 3!!!",
+      "1002": "the json parse error!",
+      "1003": "the input path is invalid!",
+      "2001": "no executor（0x2f8d0 写入）",
+      "2003": "parse action info failed!!!（ActionDataParser::Parse 返回 false）"
+    }
+  },
+  "wmpf://reference/relay": {
+    "create_device": "https://xweb.weixin.qq.com/api/rd/create_device",
+    "device_chan": "wss://xweb.weixin.qq.com/rd/device/%s?role=user",
+    "target_chan": "wss://xweb.weixin.qq.com/rd/target/%s?role=user&token=%s",
+    "frontend": "https://chrome-devtools-frontend.appspot.com/serve_rev/%s/%s.html",
+    "trigger_cdp": [
+      "StartRemoteDebug",
+      "StopRemoteDebug",
+      "XWeb.inspect"
+    ],
+    "events": [
+      "CreateDebugDevice, request sent",
+      "StartRemoteDebug, linkToken: ",
+      "StartRemoteDebug, already running",
+      "StopRemoteDebug, state_: ",
+      "StopRemoteDebug, not running",
+      "StartClientProxy, remote_debug_url: "
+    ],
+    "status_json": "{\"event\":\"XWeb.inspect\",\"data\":{\"targetId\":\"%s\",\"status\":%d}}",
+    "detach_json": "{\"method\":\"Inspector.detached\",\"params\":{\"reason\":\"target_closed\"}}",
+    "source_modules": [
+      "flue\\browser\\remote_debug\\xweb_remote_debug_host.cc",
+      "flue\\browser\\remote_debug\\xweb_target_handler.cc",
+      "flue\\browser\\remote_debug\\xweb_websocket_adapter.cc"
+    ]
+  }
+}

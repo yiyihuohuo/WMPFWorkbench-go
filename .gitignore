@@ -1,0 +1,23 @@
+__pycache__/
+*.py[cod]
+/data/
+/out/
+/bridge/node_modules/
+/runtime/
+*.obj
+*.ilk
+*.pdb
+*.exe
+*.dll
+/.worktrees/
+/dist/
+/build/
+/artifacts/
+/vendor/KillWxapkg/.git/
+native/internal/bundle/bin/*.exe
+
+# local-only note (must NOT be pushed to GitHub)
+/_LOCAL_GITHUB_NOTE.md
+
+# local archives (never push)
+/_archive/

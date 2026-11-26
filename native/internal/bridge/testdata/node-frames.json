@@ -1,0 +1,12 @@
+[
+  {
+    "frame": "CAMaFGNocm9tZURldnRvb2xzUmVzdWx0Ijp4nONgFtKpVspMUbIy11EqSi0uzSlRsqpWKkvMKU1VslJKy6woKS1KVXi2sfPp2ulKtbVSDACBWBFuKAEwMg==",
+    "category": "chromeDevtoolsResult",
+    "payload": "{\"id\":7,\"result\":{\"value\":\"fixture 汉字\"}}"
+  },
+  {
+    "frame": "CAQaFGNocm9tZURldnRvb2xzUmVzdWx0IjIIBBIseyJpZCI6NywicmVzdWx0Ijp7InZhbHVlIjoiZml4dHVyZSDmsYnlrZcifX0aACgA",
+    "category": "chromeDevtoolsResult",
+    "payload": "{\"id\":7,\"result\":{\"value\":\"fixture 汉字\"}}"
+  }
+]

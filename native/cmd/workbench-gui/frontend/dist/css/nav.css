@@ -1,0 +1,18 @@
+.sidebar{
+  width:184px;padding:22px 10px 12px;
+  background:linear-gradient(180deg,var(--surface-2) 0%,var(--surface-1) 100%);
+}
+.brand{font-size:16px;letter-spacing:.2px}
+.brandRow{margin-top:5px}
+.navMargin{height:18px}
+.navGroup{margin-bottom:14px}
+.navGroupLabel{font-size:10px;letter-spacing:.14em;color:var(--text-faint);padding:0 10px 6px;text-transform:uppercase}
+.nav{display:flex;align-items:center;gap:9px;border-radius:8px;padding:8px 10px;margin-bottom:2px;color:var(--text-muted);transition:background .12s,color .12s}
+.nav:hover{background:var(--surface-3);color:var(--text)}
+.nav.active{background:var(--accent-soft);color:var(--accent);font-weight:600}
+.navText{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sideTarget{margin-top:auto;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--surface-2);margin-bottom:10px}
+.sideTargetLabel{font-size:10px;letter-spacing:.12em;color:var(--text-faint);text-transform:uppercase}
+.sideTargetValue{font-size:12px;font-weight:600;color:var(--text);margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sideTargetMeta{font-size:10px;color:var(--text-muted);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sideBottom{border-top:1px solid var(--divider);padding-top:10px}

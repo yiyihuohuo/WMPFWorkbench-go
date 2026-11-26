@@ -1,0 +1,1110 @@
+[
+  {
+    "name": "search_mini_programs",
+    "description": "在线搜索收录的微信小程序/小游戏，返回 appid 供查询详情或独立启动使用。\n\n    source=online 使用当前登录账号在线搜索；local 查询本机缓存。limit 为本次结果裁剪，\n    不是服务端应用分页大小。名称不包含关键词的服务端结果会明确标记。\n    注意：launch 要求该 appid 本地已有包，或用 path 指定已存在的包文件；\n    在线搜索命中的 appid 不保证能直接独立启动。\n    ",
+    "inputSchema": {
+      "properties": {
+        "keyword": {
+          "title": "关键词",
+          "type": "string",
+          "description": "搜索关键词"
+        },
+        "limit": {
+          "default": 30,
+          "title": "数量",
+          "type": "integer",
+          "description": "返回数量上限"
+        },
+        "source": {
+          "default": "online",
+          "enum": [
+            "online",
+            "local"
+          ],
+          "title": "来源",
+          "type": "string",
+          "description": "数据来源"
+        },
+        "include_unlisted": {
+          "type": "boolean",
+          "default": false,
+          "description": "是否包含未收录小程序",
+          "title": "包含未收录"
+        }
+      },
+      "required": [
+        "keyword"
+      ],
+      "title": "参数",
+      "type": "object"
+    }
+  },
+  {
+    "name": "get_app_detail",
+    "description": "单个 appid 的本地全貌：包清单、本地态、图标、明文材料计数与基础库。appid 可省略，省略时使用当前活动会话 active_appid。\n如果需要工程源码，优先用 decrypt_wxapkg；不要对已经本地存在的二跳目标重复 export。",
+    "inputSchema": {
+      "properties": {
+        "appid": {
+          "title": "AppID",
+          "type": "string",
+          "description": "目标 AppID"
+        }
+      },
+      "title": "参数",
+      "type": "object"
+    }
+  },
+  {
+    "name": "launch",
+    "description": "独立启动或二跳启动小程序。\n\nappid 必填。已收录 appid 可本地直接启动；未收录 appid 会自动走 two_hop，通过本地跳板小程序下载并打开目标。\nwait_ready=true 会等待目标 devtools.Start + setup；restart_on_failure 可对可恢复失败自动重启一次。\n二跳目标完成后，用 runtime_status 或 package.resolve 查看 active_appid 和本地包来源。",
+    "inputSchema": {
+      "properties": {
+        "appid": {
+          "title": "AppID",
+          "type": "string",
+          "description": "目标 AppID"
+        },
+        "path": {
+          "default": "",
+          "title": "路径",
+          "type": "string",
+          "description": "路径"
+        },
+        "seconds": {
+          "description": "会话时长，0 表示不限",
+          "title": "秒数",
+          "type": "integer"
+        },
+        "hide_window": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "隐藏窗口",
+          "description": "是否隐藏窗口"
+        },
+        "wait_ready": {
+          "description": "是否等待目标就绪",
+          "type": "boolean",
+          "default": false,
+          "title": "等待就绪"
+        },
+        "restart_on_bad_preload": {
+          "description": "失败后是否重启",
+          "type": "boolean",
+          "default": false,
+          "title": "坏预加载时重启"
+        },
+        "restart_on_failure": {
+          "description": "可恢复失败时是否自动重启",
+          "type": "boolean",
+          "default": false,
+          "title": "失败时重启"
+        },
+        "force_two_hop": {
+          "type": "boolean",
+          "default": false,
+          "description": "强制使用二跳启动",
+          "title": "强制二跳"
+        },
+        "bridge_appid": {
+          "type": "string",
+          "description": "跳板小程序 AppID",
+          "title": "跳板 AppID"
+        }
+      },
+      "required": [
+        "appid"
+      ],
+      "title": "参数",
+      "type": "object"
+    }
+  },
+  {
+    "name": "close_runtime",
+    "description": "关闭指定自产宿主会话，等待观测器清理它创建的进程。\n\n    会话不存在或仍在清理时返回 ok=false + reason，不抛异常；已终态的会话关闭后从列表移除。\n    ",
+    "inputSchema": {
+      "properties": {
+        "session_id": {
+          "title": "会话 ID",
+          "type": "string",
+          "description": "运行会话 ID"
+        }
+      },
+      "required": [
+        "session_id"
+      ],
+      "title": "参数",
+      "type": "object"
+    }
+  },
+  {
+    "name": "jump_mini_program",
+    "description": "在已启动并已 cdp_connect 的小程序内，通过真实按钮事件触发 wx.navigateToMiniProgram 跳到任意目标 AppID，并自动点击确认框。用于绕过独立 launch 的应用宝收录限制；目标通过小程序内跳转打开后，active_appid/jumped 会切换，CDP 继续路由到当前目标。\n\n需要先 launch 一个带可用跳转入口的来源小程序（如茶颜悦色），再 cdp_connect。target_appid 必须是 wx + 16 位小写十六进制。auto_confirm=true 时会按 selector/文本查找确认控件并注入真实点击事件。",
+    "inputSchema": {
+      "properties": {
+        "target_appid": {
+          "title": "Target Appid",
+          "type": "string"
+        },
+        "source_handler": {
+          "default": "goYY",
+          "title": "来源处理器",
+          "type": "string"
+        },
+        "button_selector": {
+          "default": ".yy-btn",
+          "title": "按钮选择器",
+          "type": "string"
+        },
+        "source_x": {
+          "default": 70,
+          "title": "来源 X",
+          "type": "number"
+        },
+        "source_y": {
+          "default": 260,
+          "title": "来源 Y",
+          "type": "number"
+        },
+        "confirm_selector": {
+          "default": "button.btn_allow",
+          "title": "确认选择器",
+          "type": "string"
+        },
+        "timeout_ms": {
+          "default": 20000,
+          "title": "超时毫秒",
+          "type": "integer"
+        },
+        "auto_confirm": {
+          "default": true,
+          "title": "Auto Confirm",
+          "type": "boolean"
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "dom",
+            "direct"
+          ],
+          "default": "dom",
+          "description": "direct 模式通过 WeixinJSBridge.invoke 直接跳转。"
+        },
+        "bridge_appid": {
+          "type": "string",
+          "description": "跳板小程序 AppID",
+          "title": "跳板 AppID"
+        }
+      },
+      "required": [
+        "target_appid"
+      ],
+      "title": "参数",
+      "type": "object"
+    }
+  },
+  {
+    "name": "login_status",
+    "description": "当前选择账号的公开信息；不返回 Cookie、令牌或登录票据。",
+    "inputSchema": {
+      "properties": {},
+      "title": "参数",
+      "type": "object"
+    }
+  },
+  {
+    "name": "cdp_local_targets",
+    "description": "默认发现自产会话调试桥；传入 HTTP base 则使用标准 Chromium 发现接口。\n\n    每个目标返回 appid（当前实际渲染的小程序）、launched_appid（本次 launch 指定的）\n    与 jumped（是否发生了小程序间跳转）。当 jumped=true 时，appid 与 launched_appid 不同：\n    该小程序是通过当前小程序内的跳转打开的，可能并未在应用宝上架，但其调试通道同样可用\n    （webSocketDebuggerUrl 是同一个桥端口，CDP 会转发给当前活跃的小程序）。",
+    "inputSchema": {
+      "properties": {
+        "base": {
+          "default": "",
+          "title": "基地址",
+          "type": "string",
+          "description": "CDP 基础地址"
+        }
+      },
+      "title": "参数",
+      "type": "object"
+    }
+  },
+  {
+    "name": "cdp_connect",
+    "description": "连接 CDP 目标并缓存会话；重连会关闭上一次连接。\n\n    默认 base=ws://127.0.0.1:62000 直连自产宿主调试桥。target_substr 仅在\n    base 为 HTTP 发现地址（如 http://127.0.0.1:9222）时生效；默认参数下无效。\n    会话内发生小程序跳转后无需重连：桥会转发给新的活跃小程序，但旧的 JS 上下文\n    已销毁，需重新执行 Runtime.enable 并重新建立 context。",
+    "inputSchema": {
+      "properties": {
+        "target_substr": {
+          "default": "",
+          "title": "目标筛选",
+          "type": "string",
+          "description": "目标筛选字符串"
+        },
+        "base": {
+          "default": "ws://127.0.0.1:62000",
+          "title": "基地址",
+          "type": "string",
+          "description": "CDP 基础地址"
+        },
+        "session_id": {
+          "type": "string",
+          "description": "运行会话 ID",
+          "title": "会话 ID"
+        }
+      },
+      "title": "参数",
+      "type": "object"
+    }
+  },
+  {
+    "name": "cdp_evaluate",
+    "description": "在已连接目标求值，返回 CDP Runtime.evaluate 原始结果（returnByValue=true）。\n\n    expression 需为单条 JS 表达式；多条语句请包成 IIFE。游戏/小程序的业务上下文在\n    iframe 里，先取 document.querySelectorAll('iframe')[0].contentWindow 再访问\n    wx / GameGlobal。异步事件（console、Network）不随本工具返回，请用 cdp_events 读取。\n    ",
+    "inputSchema": {
+      "properties": {
+        "expression": {
+          "title": "表达式",
+          "type": "string",
+          "description": "JavaScript 表达式"
+        }
+      },
+      "required": [
+        "expression"
+      ],
+      "title": "参数",
+      "type": "object"
+    }
+  },
+  {
+    "name": "cdp_send",
+    "description": "原生 CDP 透传；Page.getFrameTree 因引擎已确认缺陷被明确拒绝。\n\n    异步事件不随命令返回，请用 cdp_events 读取；读取前需先经本工具显式\n    发送对应域的 *.enable（如 Runtime.enable / Network.enable）。\n    ",
+    "inputSchema": {
+      "properties": {
+        "method": {
+          "title": "方法",
+          "type": "string",
+          "description": "CDP 方法名"
+        },
+        "params_json": {
+          "default": "{}",
+          "title": "参数 JSON",
+          "type": "string",
+          "description": "CDP 参数 JSON"
+        }
+      },
+      "required": [
+        "method"
+      ],
+      "title": "参数",
+      "type": "object"
+    }
+  },
+  {
+    "name": "cdp_events",
+    "description": "增量读取 CDP 事件，不消费缓存。method_filter 为方法名或 Network.* 等域前缀列表。\n\n    since 省略从最早保留事件读；now 立即返回当前游标，之后传 next_cursor 续读。\n    游标绑定本次连接，重连失效；更换过滤条件需从适当的旧游标重读。\n    limit=1..200，wait_ms=0..3000，max_bytes=2048..40000 限制完整 JSON 响应。\n    gap/missed_events 表示缓存淘汰缺口，truncated 表示事件被裁剪。\n    先通过 cdp_send 显式 Runtime.enable/Network.enable；只返回目标实际发出的事件。\n    ",
+    "inputSchema": {
+      "properties": {
+        "method_filter": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "方法过滤",
+          "description": "只读取指定方法的事件"
+        },
+        "limit": {
+          "default": 50,
+          "title": "数量",
+          "type": "integer",
+          "description": "返回数量上限"
+        },
+        "since": {
+          "default": "",
+          "title": "游标",
+          "type": "string",
+          "description": "事件游标"
+        },
+        "wait_ms": {
+          "default": 0,
+          "title": "等待毫秒",
+          "type": "integer",
+          "description": "最长等待毫秒"
+        },
+        "max_bytes": {
+          "default": 32000,
+          "title": "最大字节",
+          "type": "integer",
+          "description": "最大读取字节"
+        },
+        "session_id": {
+          "type": "string",
+          "description": "运行会话 ID",
+          "title": "会话 ID"
+        }
+      },
+      "title": "参数",
+      "type": "object"
+    }
+  },
+  {
+    "name": "cdp_scripts",
+    "description": "脚本清单，或按 script_id / url 分页读取源码。先用 cdp_send 发送 Debugger.enable。\n\n    本机 WMPF 不回放 Debugger.scriptParsed：清单 count 通常为 0，按 url 查不到。\n    这只影响“枚举”，不代表取不到源码——已知 scriptId 时 Debugger.getScriptSource 可用，\n    scriptId 可从 cdp_events 的 Runtime.consoleAPICalled.stackTrace.callFrames[].scriptId\n    取得（需先 cdp_send 发送 Runtime.enable + Debugger.enable）。\n    读取按 offset / max_bytes（1–40000）分页，返回 total_bytes / truncated / next_offset，\n    单个脚本可能有数百 KB 到数 MB，需按页拼接；离线还原工程目录仍用 decrypt_wxapkg。\n    ",
+    "inputSchema": {
+      "properties": {
+        "script_id": {
+          "default": "",
+          "title": "脚本 ID",
+          "type": "string",
+          "description": "脚本 ID"
+        },
+        "url": {
+          "default": "",
+          "title": "URL",
+          "type": "string",
+          "description": "脚本 URL"
+        },
+        "offset": {
+          "default": 0,
+          "title": "偏移",
+          "type": "integer",
+          "description": "读取偏移"
+        },
+        "max_bytes": {
+          "default": 12000,
+          "title": "最大字节",
+          "type": "integer",
+          "description": "最大读取字节"
+        },
+        "session_id": {
+          "type": "string",
+          "description": "运行会话 ID",
+          "title": "会话 ID"
+        }
+      },
+      "title": "参数",
+      "type": "object"
+    }
+  },
+  {
+    "name": "extract_api_surface",
+    "description": "静态接口/云函数面（candidate 级；confirmed 需 netlog 或 Network 域运行期证据）。\n\n    运行期证据可用 cdp_events 读取 Network.* / Runtime.consoleAPICalled 等事件取得，\n    需先用 cdp_send 显式启用对应域。\n    输出体量受 MCP 响应上限（50000 字符）约束：request_urls 按命中次数取 limit 条\n    （offset 翻页取后续），wx_api_urls / cloud_functions 上限 min(limit, 80)；\n    各节同时返回 *_total 真实总量，存在截断时一眼可见。\n    ",
+    "inputSchema": {
+      "properties": {
+        "appid": {
+          "title": "AppID",
+          "type": "string",
+          "description": "目标 AppID"
+        },
+        "limit": {
+          "default": 100,
+          "title": "数量",
+          "type": "integer",
+          "description": "返回数量上限"
+        },
+        "offset": {
+          "default": 0,
+          "title": "偏移",
+          "type": "integer",
+          "description": "读取偏移"
+        },
+        "session_id": {
+          "type": "string",
+          "description": "运行会话 ID",
+          "title": "会话 ID"
+        }
+      },
+      "required": [
+        "appid"
+      ],
+      "title": "参数",
+      "type": "object"
+    }
+  },
+  {
+    "name": "decrypt_wxapkg",
+    "description": "离线解密本机 V1MMWX 小程序包并还原工程目录。\n\n异步任务：start 立即返回 task_id，status 轮询，list 查看，cancel 终止。\nappid 可省略：省略时使用当前活动会话的 active_appid；二跳打开的未收录小程序已经下载到 runtime-profile，可直接用本工具解密，不需要先 export。\nsource=auto（默认）扫描本机运行态包；source=runtime_profile 仅使用运行态包。version 省略取最新版本。\n仅处理本地包副本，不接触运行中的微信/应用宝进程；仅限分析本人所有或已获授权的包。",
+    "inputSchema": {
+      "properties": {
+        "action": {
+          "default": "start",
+          "enum": [
+            "start",
+            "status",
+            "list",
+            "cancel"
+          ],
+          "title": "动作",
+          "type": "string",
+          "description": "操作类型"
+        },
+        "task_id": {
+          "default": "",
+          "title": "任务 ID",
+          "type": "string",
+          "description": "任务 ID"
+        },
+        "appid": {
+          "default": "",
+          "title": "AppID",
+          "type": "string",
+          "description": "目标 AppID"
+        },
+        "out_dir": {
+          "default": "",
+          "title": "输出目录",
+          "type": "string",
+          "description": "输出目录"
+        },
+        "version": {
+          "default": "",
+          "title": "版本",
+          "type": "string",
+          "description": "版本号"
+        },
+        "restore": {
+          "default": true,
+          "title": "还原工程",
+          "type": "boolean",
+          "description": "是否还原工程目录"
+        },
+        "pretty": {
+          "default": false,
+          "title": "格式化",
+          "type": "boolean",
+          "description": "是否格式化脚本"
+        },
+        "timeout": {
+          "default": 300,
+          "title": "超时秒数",
+          "type": "integer",
+          "description": "超时秒数"
+        },
+        "session_id": {
+          "type": "string",
+          "description": "运行会话 ID",
+          "title": "会话 ID"
+        },
+        "source": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "runtime_profile"
+          ],
+          "default": "auto",
+          "description": "数据来源",
+          "title": "来源"
+        }
+      },
+      "title": "参数",
+      "type": "object"
+    }
+  },
+  {
+    "name": "index",
+    "description": "管理本机索引：统计、浏览、重建或列出已索引应用的包。在线搜索使用 search_mini_programs。",
+    "inputSchema": {
+      "properties": {
+        "action": {
+          "default": "stats",
+          "enum": [
+            "stats",
+            "browse",
+            "rebuild",
+            "packages"
+          ],
+          "title": "动作",
+          "type": "string",
+          "description": "操作类型"
+        },
+        "limit": {
+          "default": 50,
+          "title": "数量",
+          "type": "integer",
+          "description": "返回数量上限"
+        },
+        "offset": {
+          "default": 0,
+          "title": "偏移",
+          "type": "integer",
+          "description": "读取偏移"
+        },
+        "session_id": {
+          "type": "string",
+          "description": "运行会话 ID",
+          "title": "会话 ID"
+        },
+        "appid": {
+          "type": "string",
+          "description": "目标 AppID",
+          "title": "AppID"
+        }
+      },
+      "title": "参数",
+      "type": "object"
+    }
+  },
+  {
+    "name": "runtime_status",
+    "description": "当前 MCP 创建的会话及登录/启动/调试状态；可选附带运行时诊断和进程快照。",
+    "inputSchema": {
+      "properties": {
+        "include_processes": {
+          "default": false,
+          "title": "Include Processes",
+          "type": "boolean"
+        },
+        "include_diagnostics": {
+          "type": "boolean",
+          "default": false,
+          "description": "显示跳板小程序等诊断字段。"
+        }
+      },
+      "title": "参数",
+      "type": "object"
+    }
+  },
+  {
+    "name": "netlog",
+    "description": "查找已有 NetLog，或对指定文件同时生成摘要和接口清单；采集说明见 wmpf://reference/netlog。\n\n    analyze 的 path 不存在时返回 ok=false + reason，不抛异常。\n    ",
+    "inputSchema": {
+      "properties": {
+        "action": {
+          "default": "discover",
+          "enum": [
+            "discover",
+            "analyze"
+          ],
+          "title": "动作",
+          "type": "string",
+          "description": "操作类型"
+        },
+        "path": {
+          "default": "",
+          "title": "路径",
+          "type": "string",
+          "description": "路径"
+        },
+        "session_id": {
+          "type": "string",
+          "description": "运行会话 ID",
+          "title": "会话 ID"
+        },
+        "appid": {
+          "type": "string",
+          "description": "目标 AppID",
+          "title": "AppID"
+        }
+      },
+      "title": "参数",
+      "type": "object"
+    }
+  },
+  {
+    "name": "export_mini_program",
+    "description": "提交一个任意小程序包导出任务（异步，立即返回 task_id，不会阻塞 agent）。\n通过本地授权会话从远程服务按 appid 或 username 下载完整 wxapkg；提交后用 export_status 查询进度与最终结果。\nversion_type: 0 正式(默认)、1 体验、2 开发、999 预览；version 为空取最新。",
+    "inputSchema": {
+      "type": "object",
+      "title": "参数",
+      "properties": {
+        "appid": {
+          "type": "string",
+          "default": "",
+          "title": "AppID",
+          "description": "目标 AppID"
+        },
+        "username": {
+          "type": "string",
+          "default": "",
+          "title": "用户名",
+          "description": "小程序用户名"
+        },
+        "out_dir": {
+          "type": "string",
+          "default": "",
+          "title": "输出目录",
+          "description": "输出目录"
+        },
+        "version_type": {
+          "type": "integer",
+          "default": 0,
+          "enum": [
+            0,
+            1,
+            2,
+            999
+          ],
+          "title": "版本类型",
+          "description": "版本类型"
+        },
+        "version": {
+          "type": "string",
+          "default": "",
+          "title": "版本",
+          "description": "版本号"
+        },
+        "all_packages": {
+          "type": "boolean",
+          "default": false,
+          "title": "全部包",
+          "description": "是否导出全部分包"
+        },
+        "concurrency": {
+          "type": "integer",
+          "default": 3,
+          "title": "Concurrency"
+        },
+        "unpack": {
+          "type": "boolean",
+          "default": true,
+          "title": "解包",
+          "description": "是否解包"
+        },
+        "beautify": {
+          "type": "boolean",
+          "default": false,
+          "title": "美化",
+          "description": "是否美化"
+        },
+        "session_id": {
+          "type": "string",
+          "description": "运行会话 ID",
+          "title": "会话 ID"
+        },
+        "source": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "runtime_profile",
+            "appstore"
+          ],
+          "default": "auto",
+          "description": "数据来源",
+          "title": "来源"
+        }
+      }
+    }
+  },
+  {
+    "name": "export_status",
+    "description": "查询小程序包导出任务的进度与结果。\naction=status：带 task_id 查单个任务；留空查最近一个任务。\n任务 state 为 queued/running/done/failed/cancelled，phase 描述当前阶段，elapsed_ms 为耗时；done 时 result 含 out_dir/unpacked_dir/packages。\naction=list 列出最近任务，action=cancel 取消任务。",
+    "inputSchema": {
+      "type": "object",
+      "title": "参数",
+      "properties": {
+        "action": {
+          "type": "string",
+          "default": "status",
+          "enum": [
+            "status",
+            "list",
+            "cancel"
+          ],
+          "title": "动作",
+          "description": "操作类型"
+        },
+        "task_id": {
+          "type": "string",
+          "default": "",
+          "title": "任务 ID",
+          "description": "任务 ID"
+        },
+        "limit": {
+          "type": "integer",
+          "default": 10,
+          "title": "数量",
+          "description": "返回数量上限"
+        }
+      }
+    }
+  },
+  {
+    "name": "cloud_capture.install",
+    "description": "安装 wx.cloud.callFunction 运行期捕获 Hook；默认会自动安装，通常不需要手动调用。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {}
+    }
+  },
+  {
+    "name": "cloud_capture.list",
+    "description": "列出当前会话已捕获的云函数调用。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {}
+    }
+  },
+  {
+    "name": "cloud_capture.replay",
+    "description": "使用显式参数重放一次云函数调用。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "名称",
+          "title": "名称"
+        },
+        "data": {
+          "type": "object",
+          "description": "参数对象",
+          "default": "{}",
+          "title": "参数对象"
+        }
+      }
+    }
+  },
+  {
+    "name": "userscript.add",
+    "description": "新增持久 Userscript；目标 setup 后按 AppID 自动注入。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "名称",
+          "title": "名称"
+        },
+        "source": {
+          "type": "string",
+          "description": "数据来源",
+          "title": "来源"
+        },
+        "match": {
+          "type": "array",
+          "description": "AppID 匹配列表",
+          "default": "[]",
+          "items": {
+            "type": "string"
+          },
+          "title": "AppID 匹配列表"
+        },
+        "runAt": {
+          "type": "string",
+          "description": "运行时机",
+          "default": "document_start",
+          "enum": [
+            "document_start",
+            "document_end",
+            "document_idle"
+          ],
+          "title": "运行时机"
+        },
+        "injectInto": {
+          "type": "string",
+          "description": "注入目标",
+          "default": "page",
+          "title": "注入目标"
+        }
+      }
+    }
+  },
+  {
+    "name": "userscript.list",
+    "description": "列出已保存的 Userscript。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {}
+    }
+  },
+  {
+    "name": "userscript.remove",
+    "description": "删除指定 Userscript。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "脚本或规则标识",
+          "title": "标识"
+        }
+      }
+    }
+  },
+  {
+    "name": "userscript.enable",
+    "description": "启用指定 Userscript。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "脚本或规则标识",
+          "title": "标识"
+        }
+      }
+    }
+  },
+  {
+    "name": "userscript.disable",
+    "description": "停用指定 Userscript。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "脚本或规则标识",
+          "title": "标识"
+        }
+      }
+    }
+  },
+  {
+    "name": "userscript.reload",
+    "description": "重新安装所有启用脚本到当前目标。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {}
+    }
+  },
+  {
+    "name": "wxapi.capture",
+    "description": "设置 wx API 捕获分类；默认全部开启，单纯查询状态可不传参数。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "request": {
+          "type": "boolean",
+          "description": "不传表示保持当前状态；传入布尔值立即修改",
+          "title": "捕获 wx.request"
+        },
+        "storage": {
+          "type": "boolean",
+          "description": "不传表示保持当前状态；传入布尔值立即修改",
+          "title": "捕获 storage"
+        },
+        "bridge": {
+          "type": "boolean",
+          "description": "不传表示保持当前状态；传入布尔值立即修改",
+          "title": "捕获 native bridge"
+        }
+      }
+    }
+  },
+  {
+    "name": "wxapi.list",
+    "description": "列出已捕获的 wx API 调用。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "category": {
+          "type": "string",
+          "description": "分类过滤",
+          "default": "",
+          "enum": [
+            "",
+            "request",
+            "storage",
+            "bridge"
+          ],
+          "title": "分类"
+        }
+      }
+    }
+  },
+  {
+    "name": "wxapi.replay",
+    "description": "重放一次 wx API 调用。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "api": {
+          "type": "string",
+          "description": "API 名称",
+          "title": "API 名称"
+        },
+        "name": {
+          "type": "string",
+          "description": "名称",
+          "default": "",
+          "title": "名称"
+        },
+        "data": {
+          "type": "object",
+          "description": "参数对象",
+          "default": "{}",
+          "title": "参数对象"
+        }
+      }
+    }
+  },
+  {
+    "name": "route.list",
+    "description": "从 __wxConfig 读取当前小程序的路由清单和分类。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {}
+    }
+  },
+  {
+    "name": "route.navigate",
+    "description": "使用 reLaunch → switchTab → redirectTo → navigateTo 安全回退链导航。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "路径",
+          "title": "路径"
+        },
+        "method": {
+          "type": "string",
+          "description": "CDP 方法名",
+          "default": "",
+          "title": "方法"
+        }
+      }
+    }
+  },
+  {
+    "name": "route.guard",
+    "description": "开启或关闭小程序跳转守卫。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "是否启用",
+          "default": "false",
+          "title": "是否启用"
+        }
+      }
+    }
+  },
+  {
+    "name": "scan.rules",
+    "description": "列出、新增、修改或删除敏感扫描规则。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "type": "string",
+          "description": "操作类型",
+          "default": "list",
+          "enum": [
+            "list",
+            "add",
+            "update",
+            "remove"
+          ],
+          "title": "动作"
+        },
+        "name": {
+          "type": "string",
+          "description": "名称",
+          "default": "",
+          "title": "名称"
+        },
+        "pattern": {
+          "type": "string",
+          "description": "正则表达式",
+          "default": "",
+          "title": "正则"
+        },
+        "severity": {
+          "type": "string",
+          "description": "严重度",
+          "default": "info",
+          "title": "严重度"
+        },
+        "id": {
+          "type": "string",
+          "description": "脚本或规则标识",
+          "default": "",
+          "title": "标识"
+        },
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "title": "是否启用",
+          "description": "是否启用规则"
+        }
+      }
+    }
+  },
+  {
+    "name": "scan.run",
+    "description": "扫描当前打开小程序的已还原源码；path 可省略，默认使用当前目标。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "路径",
+          "title": "路径"
+        }
+      }
+    }
+  },
+  {
+    "name": "scan.report",
+    "description": "返回最近生成的 HTML 扫描报告路径。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {}
+    }
+  },
+  {
+    "name": "package.resolve",
+    "description": "解析本地包元数据；省略 appid 时使用当前活动会话。二跳未收录目标也会在 runtime-profile 中。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "appid": {
+          "type": "string",
+          "description": "目标 AppID",
+          "title": "AppID"
+        }
+      }
+    }
+  },
+  {
+    "name": "wxapi.delete",
+    "description": "删除已捕获的 wx API 记录，支持批量。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "要删除的记录 ID 列表"
+        }
+      },
+      "required": [
+        "ids"
+      ]
+    }
+  },
+  {
+    "name": "cloud_capture.delete",
+    "description": "删除已捕获的云函数调用记录，支持批量。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "要删除的记录 ID 列表"
+        }
+      },
+      "required": [
+        "ids"
+      ]
+    }
+  }
+]

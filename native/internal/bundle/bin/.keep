@@ -1,0 +1,2 @@
+# Placeholder so `go:embed bin/*` compiles before the release build copies
+# the native helpers here. The release script overwrites this directory.

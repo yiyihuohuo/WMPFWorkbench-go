@@ -1,0 +1,30 @@
+[
+  {
+    "name": "wmpf-sdk-reference",
+    "title": "WMPF SDK ABI / 配置键 / 错误码",
+    "uri": "wmpf://reference/sdk",
+    "description": "",
+    "mimeType": "text/plain"
+  },
+  {
+    "name": "wmpf-relay-reference",
+    "title": "XWeb 中继契约",
+    "uri": "wmpf://reference/relay",
+    "description": "",
+    "mimeType": "text/plain"
+  },
+  {
+    "name": "wmpf-netlog-reference",
+    "title": "NetLog 采集触发说明",
+    "uri": "wmpf://reference/netlog",
+    "description": "",
+    "mimeType": "text/plain"
+  },
+  {
+    "name": "wmpf-live-status",
+    "title": "运行时进程与配置诊断",
+    "uri": "wmpf://status",
+    "description": "",
+    "mimeType": "text/plain"
+  }
+]

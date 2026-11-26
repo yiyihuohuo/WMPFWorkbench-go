@@ -1,0 +1,1189 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>小程序工作台</title>
+<style>
+:root{
+  --bg:#ffffff; --surface-1:#f5f6f8; --surface-2:#ffffff; --surface-3:#eef1f6;
+  --border:#e3e6ec; --divider:#eef1f5;
+  --text:#2f3540; --text-strong:#1f2532; --text-muted:#6f7885; --text-faint:#9aa1ac;
+  --accent:#16a34a; --accent-hover:#15803d; --accent-contrast:#ffffff; --accent-soft:#e8f5ec;
+  --btn-bg:#ffffff; --btn-hover:#f2f7f3; --btn-active:#e3f0e7; --btn-border:#d7e2da;
+  --input-bg:#ffffff; --input-border:#d7e2da;
+  --table-head:#f8fbf9; --table-border:#e5eee8; --row-hover:#f7fbf8; --row-selected:#e8f5ec;
+  --log-bg:#fbfcfd; --log-text:#4b5361;
+  --status-bg:#fafbfc; --status-border:#e9ecf1;
+  --scroll-thumb:#c4c9d2; --scroll-thumb-hover:#aeb5c0;
+  --ok:#16a34a; --warn:#d97706; --bad:#dc2626; --busy:#2563eb;
+}
+html[data-theme="dark"]{
+  --bg:#1b1d21; --surface-1:#222528; --surface-2:#26292d; --surface-3:#2e3136;
+  --border:#363a40; --divider:#2c2f34;
+  --text:#d7dae0; --text-strong:#eef0f3; --text-muted:#a2a6ad; --text-faint:#7c8088;
+  --accent:#4ade80; --accent-hover:#22c55e; --accent-contrast:#102016; --accent-soft:#1e3a2a;
+  --btn-bg:#26292d; --btn-hover:#2f3237; --btn-active:#373b41; --btn-border:#3a3e45;
+  --input-bg:#1f2226; --input-border:#3a3e45;
+  --table-head:#222528; --table-border:#34383e; --row-hover:#26292d; --row-selected:#1e3a2a;
+  --log-bg:#17191c; --log-text:#c3c7ce;
+  --status-bg:#1f2226; --status-border:#2c2f34;
+  --scroll-thumb:#3f434a; --scroll-thumb-hover:#535860;
+  --ok:#4ade80; --warn:#fbbf24; --bad:#f87171; --busy:#60a5fa;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--text);font:12px/1.55 "Microsoft YaHei UI","Microsoft YaHei",sans-serif;overflow:hidden}
+button,input,select{font:inherit;color:inherit}
+button{border:1px solid var(--btn-border);border-radius:5px;padding:6px 12px;background:var(--btn-bg);cursor:pointer}
+button:hover{background:var(--btn-hover)}
+button:active{background:var(--btn-active)}
+button.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-contrast)}
+button.primary:hover{background:var(--accent-hover)}
+button:disabled{opacity:.5;cursor:default}
+input,select{border:1px solid var(--input-border);border-radius:4px;padding:6px 9px;background:var(--input-bg);outline:none}
+input:focus,select:focus{border-color:var(--accent)}
+input[type="checkbox"]{appearance:none;-webkit-appearance:none;width:16px;height:16px;border:1px solid var(--input-border);border-radius:3px;background:var(--input-bg);position:relative;cursor:pointer;flex:none;transition:background .12s,border-color .12s}
+input[type="checkbox"]:hover{border-color:var(--accent)}
+input[type="checkbox"]:checked{background:var(--accent);border-color:var(--accent)}
+input[type="checkbox"]:checked::after{content:"";position:absolute;left:4px;top:1px;width:5px;height:9px;border:solid var(--accent-contrast);border-width:0 2px 2px 0;transform:rotate(45deg)}
+input[type="checkbox"]:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+*::-webkit-scrollbar{width:10px;height:10px}
+*::-webkit-scrollbar-track{background:transparent}
+*::-webkit-scrollbar-thumb{background:var(--scroll-thumb);border-radius:6px;border:2px solid transparent;background-clip:content-box}
+*::-webkit-scrollbar-thumb:hover{background:var(--scroll-thumb-hover);background-clip:content-box}
+.layout{display:flex;height:100%}
+.sidebar{width:160px;flex:none;background:var(--surface-1);border-right:1px solid var(--border);display:flex;flex-direction:column;padding:23px 12px 14px}
+.brand{font-size:15px;font-weight:600;color:var(--text-strong)}
+.brandRow{display:flex;align-items:center;gap:6px;margin-top:4px;min-width:0}
+.brandTag{flex:none;white-space:nowrap;font-size:10px;color:var(--text-muted);background:var(--surface-2);border:1px solid var(--border);border-radius:4px;padding:1px 5px}
+.brandSub{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:11px;color:var(--text-muted)}
+.navMargin{height:22px}
+.nav{display:block;width:100%;text-align:left;border:0;background:transparent;border-radius:5px;padding:7px 10px;margin-bottom:2px;color:var(--text)}
+.nav:hover{background:var(--surface-3)}
+.nav.active{background:var(--accent-soft);color:var(--accent);font-weight:600}
+.sideBottom{margin-top:auto;font-size:11px;color:var(--text-muted);padding:0 4px;display:flex;align-items:center;gap:6px;white-space:nowrap;overflow:hidden}
+.statusDot{width:7px;height:7px;border-radius:50%;background:var(--text-faint);flex:none}
+.statusDot.ok{background:var(--ok)}.statusDot.warn{background:var(--warn)}.statusDot.bad{background:var(--bad)}.statusDot.loading{background:var(--busy)}
+.main{flex:1;min-width:0;display:flex;flex-direction:column}
+.pages{flex:1;overflow:auto;padding:20px}
+.page{display:none}
+.page.active{display:block}
+.pageTitle{font-size:19px;font-weight:600;color:var(--text-strong);margin:0}
+.subtitle{color:var(--text-muted);margin:3px 0 14px}
+.card{background:var(--surface-2);border:1px solid var(--border);border-radius:6px;padding:13px 14px;margin-bottom:12px}
+.cardTitle{font-size:12px;font-weight:600;color:var(--text-muted);margin:0 0 10px}
+.metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:12px}
+.metric{border:1px solid var(--border);border-radius:6px;padding:8px 12px;background:var(--surface-2)}
+.metric .k{color:var(--text-muted);font-size:11.5px}
+.metric .v{font-size:18px;font-weight:600;color:var(--text-strong);margin-top:2px}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.row > .grow{flex:1;min-width:120px}
+.muted{color:var(--text-muted)}
+.small{font-size:11.5px}
+table{width:100%;border-collapse:collapse;border:1px solid var(--table-border);border-radius:4px;overflow:hidden}
+th{background:var(--table-head);color:var(--text-muted);font-size:11px;font-weight:400;text-align:left;padding:7px 8px;border-bottom:1px solid var(--table-border)}
+td{padding:5px 8px;border-bottom:1px solid var(--table-border);font-size:12px}
+tr:last-child td{border-bottom:0}
+tbody tr:hover{background:var(--row-hover)}
+tbody tr.selected{background:var(--row-selected)}
+.grid2{display:grid;grid-template-columns:minmax(260px,1fr) minmax(300px,1.1fr);gap:12px}
+.qrBox{width:210px;height:210px;margin:0 auto;border:1px solid var(--border);border-radius:4px;background:var(--surface-1);display:flex;align-items:center;justify-content:center;color:var(--text-faint);overflow:hidden}
+.qrBox img{width:196px;height:196px;object-fit:contain}
+.qrBox.scanned{position:relative}
+.qrBox.scanned img{opacity:.28}
+.qrBox.scanned::after{content:'已扫码 · 请在手机确认';position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;padding:12px;color:var(--accent);font-weight:600;background:var(--surface-1);opacity:.92}
+.qrBox.done{color:var(--ok);font-size:13px}
+.qrBox.failed{color:var(--bad);font-size:13px}
+.center{text-align:center}
+.countdown{font-family:Consolas,monospace;font-size:18px;color:var(--text-muted)}
+progress{width:100%;height:3px;border:0;background:var(--surface-3);border-radius:1px;display:block;margin:6px 0}
+progress::-webkit-progress-bar{background:var(--surface-3)}
+progress::-webkit-progress-value{background:var(--accent)}
+.check{display:flex;align-items:center;gap:7px;margin:4px 0}
+.check input{width:17px;height:17px;accent-color:var(--accent)}
+.log{background:var(--log-bg);border:1px solid var(--border);border-radius:4px;padding:8px;height:calc(100vh - 190px);overflow:auto;font-family:Consolas,monospace;font-size:11.5px;white-space:pre-wrap;word-break:break-all;color:var(--log-text)}
+.pill{font-size:11px;color:var(--text-muted);background:var(--surface-2);border:1px solid var(--border);border-radius:9px;padding:1px 8px}
+.schema{background:var(--log-bg);border:1px solid var(--border);border-radius:4px;padding:8px;margin-top:10px;max-height:170px;overflow:auto;font-family:Consolas,monospace;font-size:11.5px;white-space:pre-wrap;color:var(--log-text)}
+.aboutName{font-size:18px;font-weight:600;color:var(--text-strong)}
+.aboutMeta{color:var(--text-muted);font-size:12px;line-height:1.7}
+.refRow{display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:4px 0;font-size:12px;border-bottom:1px solid var(--divider)}
+.refRow:last-of-type{border-bottom:0}
+.refName{color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.refLicense{color:var(--text-faint);font-size:11px;white-space:nowrap}
+.themeChoice{border:1px solid var(--btn-border);background:var(--btn-bg);border-radius:5px;padding:6px 14px;cursor:pointer}
+.themeChoice.active{background:var(--accent);border-color:var(--accent);color:var(--accent-contrast);font-weight:600}
+.sectionTitle{font-size:12px;font-weight:600;color:var(--text);margin:0 0 6px}
+.divider{height:1px;background:var(--divider);margin:8px 0}
+.statusbar{height:24px;flex:none;display:flex;align-items:center;padding:0 12px;background:var(--status-bg);border-top:1px solid var(--status-border);color:var(--text-muted);font-size:11px}
+@media (max-width:760px){
+  .sidebar{width:76px;padding:18px 8px}
+  .brand{font-size:13px}.brandTag,.brandSub{display:none}
+  .sideBottom{justify-content:center;padding:0}
+  .nav{text-align:center;padding:7px 2px;font-size:11px}
+  .metrics{grid-template-columns:repeat(2,1fr)}
+  .grid2{grid-template-columns:1fr}
+}
+</style>
+<link rel="stylesheet" href="./css/nav.css">
+<link rel="stylesheet" href="./css/dynamic.css">
+</head>
+<body>
+<div class="layout">
+  <nav class="sidebar">
+    <div class="brand" id="brand">小程序工作台</div>
+    <div class="brandRow"><span class="brandTag" id="brandTag">荧惑安全</span><span class="brandSub" id="brandSub">WMPF / MCP</span></div>
+    <div class="navMargin"></div>
+    <div class="navGroup">
+      <div class="navGroupLabel">工作台</div>
+      <button class="nav active" data-page="overview" data-short="概览"><span class="navText">运行概览</span></button>
+      <button class="nav" data-page="accounts" data-short="账号"><span class="navText">扫码与账号</span></button>
+      <button class="nav" data-page="search" data-short="搜索"><span class="navText">搜索与打开</span></button>
+    </div>
+    <div class="navGroup">
+      <div class="navGroupLabel">分析</div>
+      <button class="nav" data-page="dynamic" data-short="动态"><span class="navText">动态分析</span></button>
+      <button class="nav" data-page="tools" data-short="工具"><span class="navText">MCP 工具</span></button>
+      <button class="nav" data-page="logs" data-short="日志"><span class="navText">运行日志</span></button>
+    </div>
+    <div class="navGroup">
+      <div class="navGroupLabel">系统</div>
+      <button class="nav" data-page="about" data-short="关于"><span class="navText">关于</span></button>
+    </div>
+    <div class="sideTarget" id="sideTarget"><div class="sideTargetLabel">当前目标</div><div class="sideTargetValue" id="sideTargetValue">未启动</div><div class="sideTargetMeta" id="sideTargetMeta">等待会话</div></div>
+    <div class="sideBottom" id="sideStatus"><span class="statusDot" id="sideDot"></span><span id="sideText">服务尚未启动</span></div>
+  </nav>
+  <div class="main">
+    <div class="pages">
+      <section class="page active" id="page-overview">
+        <h1 class="pageTitle">运行概览</h1>
+        <p class="subtitle">管理本地服务和小程序会话。</p>
+        <div class="metrics">
+          <div class="metric"><div class="k">登录服务</div><div class="v" id="mLogin">—</div></div>
+          <div class="metric"><div class="k">MCP 服务</div><div class="v" id="mMcp">—</div></div>
+          <div class="metric"><div class="k">已保存账号</div><div class="v" id="mAccounts">—</div></div>
+          <div class="metric"><div class="k">已启用功能</div><div class="v" id="mTools">—</div></div>
+        </div>
+        <div class="card">
+          <h2 class="cardTitle">服务与端口</h2>
+          <div class="row">
+            <button class="primary" id="svcStart">启动服务</button>
+            <button id="svcStop">停止服务</button>
+            <span class="muted small" id="svcHint">登录服务与本程序共用配置</span>
+          </div>
+          <div class="row" style="margin-top:6px">
+            <span class="muted small" id="mcpHint">MCP 服务状态未知</span>
+          </div>
+          <div class="divider"></div>
+          <div class="row">
+            <span class="muted">登录端口</span><input id="loginPort" type="number" style="width:84px">
+            <span class="muted">MCP 端口</span><input id="mcpPort" type="number" style="width:84px">
+            <button id="savePorts">保存设置</button>
+          </div>
+          <div class="row" style="margin-top:8px">
+            <span class="muted">MCP 监听</span>
+            <select id="mcpBind">
+              <option value="127.0.0.1">127.0.0.1（仅本机）</option>
+              <option value="0.0.0.0">0.0.0.0（允许局域网）</option>
+            </select>
+            <span class="muted small">保存后自动重启 MCP 服务；0.0.0.0 会暴露到局域网，请确保 mcp_token 有效</span>
+          </div>
+          <div class="row" style="margin-top:8px">
+            <button id="copyStdio">复制 stdio 配置</button>
+            <button id="copyHttp">复制 HTTP 配置</button>
+          </div>
+        </div>
+        <div class="card">
+          <h2 class="cardTitle">当前独立会话</h2>
+          <table><thead><tr><th>AppID</th><th>会话状态</th><th>真实登录</th><th>调试连接</th><th>调试地址</th><th>会话 ID</th></tr></thead>
+            <tbody id="sessionBody"><tr><td colspan="6" class="muted">暂无会话</td></tr></tbody></table>
+          <div class="row" style="margin-top:8px"><button id="closeSelected">关闭选中会话</button></div>
+        </div>
+      </section>
+
+      <section class="page" id="page-accounts">
+        <h1 class="pageTitle">账号</h1>
+        <p class="subtitle">微信扫码后在手机确认，登录账号用于搜索和启动。</p>
+        <div class="grid2">
+          <div class="card">
+            <h2 class="cardTitle">微信扫码登录</h2>
+            <div class="qrBox" id="qrBox">点击下方按钮生成二维码</div>
+            <div class="center" style="margin-top:8px"><div class="muted" id="qrStatus">尚未生成二维码</div></div>
+            <div class="center countdown" id="qrCountdown">--:--</div>
+            <progress id="qrProgress" value="0" max="100"></progress>
+            <button class="primary" id="qrCreate" style="width:100%">生成登录二维码</button>
+            <button id="qrRetry" style="width:100%;margin-top:6px;display:none">重试保存已授权账号</button>
+            <p class="muted small" style="margin:8px 0 0">二维码失效后请刷新。</p>
+          </div>
+          <div class="card">
+            <h2 class="cardTitle">已保存账号</h2>
+            <p class="muted small" id="accountHint">尚无账号，先从左侧扫码登录。</p>
+            <p class="muted small" id="loginDiagnostic" style="display:none"></p>
+            <select id="accountSelect" style="width:100%"></select>
+            <div class="row" style="margin-top:10px">
+              <div class="qrBox" id="avatar" style="width:62px;height:62px;margin:0">微</div>
+              <div class="grow"><div id="accountDetail">当前账号：未选择</div></div>
+            </div>
+            <table style="margin-top:8px"><thead><tr><th>昵称 / 别名</th><th>账号状态</th><th>最近检查</th><th></th></tr></thead>
+              <tbody id="accountBody"><tr><td colspan="4" class="muted">暂无账号</td></tr></tbody></table>
+            <div class="row" style="margin-top:8px">
+              <button id="checkAccount">检查当前账号</button>
+              <button id="refreshAccounts">刷新账号列表</button>
+            </div>
+            <p class="muted small" style="margin:8px 0 0">每 2 分钟检查账号，到期前 4 分钟自动续期；“检查当前账号”会检查并按需续期。</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="page" id="page-tools">
+        <h1 class="pageTitle">MCP 工具</h1>
+        <p class="subtitle">开关影响工具发现与调用；修改后客户端可能需要刷新列表。</p>
+        <div class="row" style="margin-bottom:8px">
+          <input class="grow" id="toolFilter" placeholder="搜索名称、说明或分组…">
+          <select id="toolGroup">
+            <option>全部分组</option><option>搜索与索引</option><option>账号</option><option>运行时</option>
+            <option>调试</option><option>源码</option><option>网络</option><option>其他</option>
+          </select>
+        </div>
+        <div class="muted small" id="toolCount" style="margin-bottom:6px">正在读取工具列表…</div>
+        <div class="row" style="margin-bottom:6px">
+          <button id="bulkEnable">启用筛选结果</button>
+          <button id="bulkDisable">禁用筛选结果</button>
+          <label class="check"><input type="checkbox" id="globalSwitch">允许 MCP 调用（总开关）</label>
+        </div>
+        <table><thead><tr><th style="width:56px">启用</th><th>工具 / 分组</th><th>说明</th><th style="width:120px">能力条件</th></tr></thead>
+          <tbody id="toolBody"></tbody></table>
+        <pre class="schema" id="toolSchema">选择工具查看完整说明与输入参数…</pre>
+      </section>
+
+      <section class="page" id="page-search">
+        <h1 class="pageTitle">搜索与打开</h1>
+        <p class="subtitle">小程序检索与打开；独立运行一次支持一个调试会话。</p>
+        <div class="row" style="margin-bottom:8px">
+          <input class="grow" id="keyword" placeholder="输入名称，例如：美团、京东…">
+          <select id="searchSource"><option value="online">在线</option><option value="local">本地</option></select>
+          <button class="primary" id="searchBtn">在线搜索</button>
+        </div>
+        <table><thead><tr><th>AppID</th><th>名称</th><th style="width:64px">类型</th><th style="width:130px">匹配方式</th><th>版本 / 大小</th><th style="width:70px">操作</th></tr></thead>
+          <tbody id="resultBody"><tr><td colspan="6" class="muted">输入关键词开始搜索</td></tr></tbody></table>
+        <div class="card" style="margin-top:12px">
+          <h2 class="cardTitle">打开并调试</h2>
+          <div class="row">
+            <input class="grow" id="appidInput" placeholder="wx 开头的 18 位 AppID">
+            <input class="grow" id="entryInput" placeholder="启动路径（可选，默认留空）">
+          </div>
+          <div class="row" style="margin-top:8px">
+            <input class="grow" id="launchSeconds" type="number" min="0" step="1" placeholder="会话时长（秒；留空或 0 表示不限时）">
+          </div>
+          <p class="muted small" style="margin:6px 0 0">默认不限制时长；输入至少 60 秒可设定自动结束时间。未收录 AppID 会自动使用跳板小程序二跳启动。</p>
+          <label class="check"><input type="checkbox" id="hideWindow">后台隐藏小程序窗口</label>
+          <div class="row">
+            <button class="primary" id="launchBtn">独立打开小程序</button>
+            <button id="gotoSessions">查看运行会话</button>
+          </div>
+          <p class="muted small" style="margin:8px 0 0">调试桥：9421 / 62000 · 业务源码、worker、插件及媒体能力仍按实际兼容情况使用。</p>
+        </div>
+        <div class="card" style="margin-top:12px">
+          <h2 class="cardTitle">导出小程序包（任意 AppID）</h2>
+          <p class="muted small" style="margin:-4px 0 10px">从远程服务下载完整小程序包（wxapkg）；无需先在本机打开小程序。</p>
+          <div class="row">
+            <input class="grow" id="exportAppid" placeholder="wx 开头的 18 位 AppID（与原始 ID 二选一）">
+            <input class="grow" id="exportUsername" placeholder="原始 ID gh_…（与 AppID 二选一）">
+          </div>
+          <div class="row" style="margin-top:8px">
+            <span class="muted small">导出目录</span>
+            <input class="grow" id="exportDir" placeholder="留空使用默认导出目录">
+            <button id="saveExportDir" title="保存为默认导出目录">保存目录</button>
+            <button id="pickExportDir" title="选择目录">浏览…</button>
+          </div>
+          <p class="muted small" style="margin:5px 0 10px">当前导出目录：<span id="exportDirCurrent" class="pill">读取中…</span>（未配置时默认为程序目录下的 out\wxapkg-export）</p>
+          <div class="row" style="margin-bottom:8px">
+            <label class="muted small">版本：<select id="exportVersionType" title="选择小程序发布版本"><option value="0">正式版</option><option value="1">体验版</option><option value="2">开发版</option><option value="999">预览版</option></select></label>
+            <input id="exportVersion" placeholder="版本号（可选，留空取最新）" style="width:180px" title="指定版本号；留空则下载该类型的最新版本">
+            <label class="check"><input type="checkbox" id="exportUnpack" checked>解包为工程</label>
+            <label class="check"><input type="checkbox" id="exportAll">全量资源包</label>
+            <label class="check"><input type="checkbox" id="exportBeautify">美化代码</label>
+          </div>
+          <div class="row">
+            <button class="primary" id="exportBtn">导出此小程序包</button>
+            <span class="muted small" id="exportHint">导出需要先登录；未登录请到“扫码与账号”。</span>
+          </div>
+          <pre class="schema" id="exportResult" style="margin-top:10px">导出结果将显示在这里…</pre>
+        </div>
+      </section>
+
+      <section class="page" id="page-dynamic">
+        <h1 class="pageTitle">动态分析</h1>
+        <p class="subtitle">运行期 API 捕获、Userscript、路由地图与扫描报告；所有功能均由当前 CDP 会话驱动。</p>
+        <div id="dynamicRoot"></div>
+      </section>
+
+      <section class="page" id="page-logs">
+        <h1 class="pageTitle">运行日志</h1>
+        <p class="subtitle">仅记录状态和操作，不记录登录凭据。</p>
+        <div class="log" id="logText"></div>
+        <div class="row" style="margin-top:8px"><button id="clearLogs">清空当前日志视图</button></div>
+      </section>
+
+      <section class="page" id="page-about">
+        <h1 class="pageTitle">关于</h1>
+        <p class="subtitle">开发者、版本与参考项目。</p>
+        <div class="card">
+          <div class="row" style="gap:18px;align-items:flex-start">
+            <div class="qrBox" id="aboutLogo" style="width:64px;height:64px;margin:0;flex:none"></div>
+            <div class="grow">
+              <div class="row" style="gap:8px"><span class="aboutName">小程序工作台</span><span class="pill" id="versionPill">v1.0.5</span></div>
+              <div class="aboutMeta">开发者  Huo</div>
+              <div class="aboutMeta">公众号  荧惑安全</div>
+              <div class="aboutMeta">登录、独立启动、CDP 调试与离线解密的一体化工作台。</div>
+            </div>
+          </div>
+        </div>
+        <div class="card">
+          <h2 class="sectionTitle">外观</h2>
+          <div class="row" id="themeChoices">
+            <button class="themeChoice" data-theme-choice="auto">跟随系统</button>
+            <button class="themeChoice" data-theme-choice="light">浅色</button>
+            <button class="themeChoice" data-theme-choice="dark">深色</button>
+          </div>
+          <p class="aboutMeta" style="margin:8px 0 0">跟随系统时按 Windows 的深色/浅色设置自动切换。</p>
+        </div>
+        <div class="card">
+          <h2 class="sectionTitle">免责声明</h2>
+          <p class="aboutMeta" style="white-space:pre-line">1. 本软件仅供个人学习、研究与安全技术交流使用，不得用于商业用途或任何非法目的。
+2. 使用本软件分析的小程序、应用与数据，须为本人所有或已获得权利人明确授权；未经授权不得抓取、复制、存储或传播他人数据与个人信息。
+3. 使用者应自行遵守《中华人民共和国网络安全法》《数据安全法》《个人信息保护法》等法律法规以及微信、腾讯的服务条款。因违规或不当使用产生的一切后果由使用者自行承担，开发者不承担任何直接或间接责任。
+4. 本软件按“现状”提供，不附带任何明示或暗示的担保；使用前请自行评估风险并做好数据备份。</p>
+        </div>
+      </section>
+    </div>
+    <div class="statusbar" id="statusBar">就绪</div>
+  </div>
+</div>
+<script>
+const api = window.go?.main?.Backend;
+window.__wmpfApi = api;
+const $ = (id) => document.getElementById(id);
+const state = { tools: [], accounts: [], sessions: [], selectedSession: '', qr: null, qrState: 'idle', qrGen: 0, toolFilter: '', toolGroup: '全部分组', avatarRef: '', lastSide: '', frontLogs: [] };
+const QR_STATUS = { pending: '等待微信扫描…', scanned: '已扫码，请在手机上确认…', authorized: '已扫码，请在手机上确认（确认后需换取凭证，可能需几十秒，请勿刷新）…', confirmed: '登录成功', expired: '二维码已过期，请刷新', cancelled: '已取消', unknown: '状态未知' };
+let generation = 0;
+
+function esc(v) { return String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+// Bottom bar always shows the real current operation with a timestamp, so it
+// never looks like a static "就绪" label.
+function status(text, kind) {
+  const stamp = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+  const bar = $('statusBar');
+  bar.textContent = stamp + '  ' + (text || '就绪');
+  bar.dataset.kind = kind || '';
+}
+
+// Left-bottom runtime state: always visible, with loading/failed feedback, not
+// only after a fully successful refresh. Repeated polling must not flicker.
+function setSide(kind, text) {
+  const key = kind + '|' + text;
+  if (state.lastSide === key) return;
+  state.lastSide = key;
+  const dot = $('sideDot');
+  if (dot) dot.className = 'statusDot ' + (kind || '');
+  const label = $('sideText');
+  if (label) label.textContent = text || '';
+}
+
+// Never write a full openid or bearer token into the visible log.
+function maskSecrets(text) {
+  return String(text)
+    .replace(/\bow[A-Za-z0-9_-]{10,}\b/g, m => m.slice(0, 6) + '…')
+    .replace(/Bearer\s+[A-Za-z0-9._-]+/g, 'Bearer ***')
+    .replace(/("?(?:access_token|refresh_token|login_token)"?\s*[:=]\s*"?)([A-Za-z0-9._-]{12,})/g, '$1***');
+}
+
+function logAppend(text) {
+  const box = $('logText');
+  const line = maskSecrets(text);
+  state.frontLogs.push(line);
+  if (state.frontLogs.length > 400) state.frontLogs = state.frontLogs.slice(-400);
+  box.textContent = (box.textContent + line + '\n').split('\n').slice(-400).join('\n');
+  box.scrollTop = box.scrollHeight;
+}
+
+function nav(page) {
+  document.querySelectorAll('.nav').forEach(b => b.classList.toggle('active', b.dataset.page === page));
+  document.querySelectorAll('.page').forEach(p => p.classList.toggle('active', p.id === 'page-' + page));
+  const button = document.querySelector('.nav[data-page="' + page + '"]');
+  if (button) status('已切换到 ' + (button.dataset.short || button.textContent));
+  if (page === 'logs') refreshLogs();
+  if (page === 'dynamic' && window.WMPFDynamic) window.WMPFDynamic.activate();
+}
+
+function metrics(login, config, mcp) {
+  const service = login.login_service || {};
+  $('mLogin').textContent = service.healthy ? '正常' : service.running ? '未就绪' : '已停止';
+  $('mMcp').textContent = mcp && mcp.running ? '运行中' : (mcp && mcp.enabled === false ? '已关闭' : '未运行');
+  $('mAccounts').textContent = (login.accounts || []).length;
+  $('mTools').textContent = state.tools.filter(t => t.enabled).length + '/' + state.tools.length;
+  const sessions = state.sessions.length;
+  if (service.healthy) setSide('ok', '服务运行中 · 会话 ' + sessions);
+  else if (service.running) setSide('warn', '服务未就绪 · 会话 ' + sessions);
+  else setSide('bad', '服务未启动 · 会话 ' + sessions);
+  $('svcHint').textContent = service.healthy ? '登录服务正常 · ' + (service.url || '') : '登录服务未就绪';
+  const hint = $('mcpHint');
+  if (hint) {
+    hint.textContent = mcp && mcp.running
+      ? 'MCP 服务正常 · ' + (mcp.url || '')
+      : (mcp && mcp.error ? 'MCP 未运行：' + mcp.error : (mcp && mcp.enabled === false ? 'MCP 已关闭' : 'MCP 未运行'));
+  }
+}
+
+function debugListUrl(ws) {
+  return ws ? String(ws).trim() : '';
+}
+
+function renderSideTarget() {
+  const active = (state.sessions || []).filter(row => row.state !== 'closed' && row.state !== 'error').slice(-1)[0];
+  const value = $('sideTargetValue');
+  const meta = $('sideTargetMeta');
+  if (!value || !meta) return;
+  if (!active) {
+    value.textContent = '未启动';
+    meta.textContent = '等待会话';
+    return;
+  }
+  value.textContent = active.active_appid || active.appid || active.session_id;
+  value.title = value.textContent;
+  meta.textContent = [active.launch_mode || 'direct', active.listing_state || '', active.state || ''].filter(Boolean).join(' · ');
+}
+
+function renderSessions(rows) {
+  state.sessions = rows || [];
+  renderSideTarget();
+  state.reported = state.reported || {};
+  state.sessions.forEach(row => {
+    const key = row.session_id + '|' + row.state + '|' + (row.error || '');
+    if (state.reported[key]) return;
+    state.reported[key] = true;
+    if (row.state === 'error') {
+      logAppend('会话 ' + row.session_id + ' 启动失败：' + (row.error || '未知原因') + '（清理：' + (row.cleanup_state || 'unconfirmed') + '）');
+    } else if (row.debug_connected) {
+      logAppend('会话 ' + row.session_id + ' 已连接调试');
+    }
+    if (row.jumped && row.active_appid) {
+      logAppend('会话 ' + row.session_id + ' 内跳转到 ' + row.active_appid + '（该小程序未经应用宝渠道启动，但调试通道已就绪）');
+    }
+  });
+  const body = $('sessionBody');
+  if (!state.sessions.length) {
+    body.innerHTML = '<tr><td colspan="6" class="muted">暂无会话</td></tr>';
+    return;
+  }
+  body.innerHTML = '';
+  state.sessions.slice().reverse().forEach(row => {
+    const tr = document.createElement('tr');
+    tr.className = row.session_id === state.selectedSession ? 'selected' : '';
+    const shownAppid = row.active_appid || row.appid;
+    const jumpMark = row.jumped ? ' <span class="muted">（跳转）</span>' : '';
+    const debugUrl = debugListUrl(row.cdp_websocket);
+    const debugCell = debugUrl
+      ? `<button class="debug-link" data-url="${esc(debugUrl)}" title="${esc(debugUrl)}">打开调试器</button>`
+      : '<span class="muted">未就绪</span>';
+    tr.innerHTML = `<td>${esc(shownAppid)}${jumpMark}</td><td>${esc(row.state)}</td>
+      <td>${row.login_confirmed ? '已确认' : '等待'}</td>
+      <td>${row.debug_connected ? '已连接' : '等待'}</td>
+      <td>${debugCell}</td><td>${esc(row.session_id)}</td>`;
+    tr.addEventListener('click', () => { state.selectedSession = row.session_id; renderSessions(state.sessions); });
+    tr.querySelectorAll('.debug-link').forEach(button => button.addEventListener('click', async event => {
+      event.stopPropagation();
+      try { await api.OpenDebugger(button.dataset.url); } catch (error) { logAppend('打开调试器失败：' + error); }
+    }));
+    body.appendChild(tr);
+  });
+}
+
+function renderAccounts(login) {
+  state.accounts = login.accounts || [];
+  const selected = login.selected_account || '';
+  const select = $('accountSelect');
+  select.innerHTML = '';
+  state.accounts.forEach(account => {
+    const option = document.createElement('option');
+    option.value = account.openid || account.id;
+    option.textContent = (account.nickname || '未命名') + ' · ' + String(account.openid || account.id).slice(0, 8) + '…';
+    option.selected = option.value === selected;
+    select.appendChild(option);
+  });
+  if (!state.accounts.length) {
+    const option = document.createElement('option');
+    option.textContent = '尚无账号';
+    option.value = '';
+    select.appendChild(option);
+  }
+  const current = state.accounts.find(a => (a.openid || a.id) === selected) || state.accounts[0];
+  const diagnostic = login.diagnostic || null;
+  const diagBox = $('loginDiagnostic');
+  if (diagnostic && diagnostic.code && diagnostic.code !== 'ok') {
+    const relogin = diagnostic.relogin_required ? ' 请重新扫码登录。' : '';
+    diagBox.textContent = (diagnostic.message || diagnostic.code) + relogin;
+    diagBox.style.display = '';
+    diagBox.style.color = diagnostic.relogin_required ? '#d88' : '';
+  } else {
+    diagBox.textContent = '';
+    diagBox.style.display = 'none';
+  }
+  $('accountHint').textContent = state.accounts.length
+    ? '选择用于搜索和启动的账号。'
+    : (diagnostic && diagnostic.message ? diagnostic.message : (login.error ? '账号列表获取失败：' + login.error : '尚无账号，先从左侧扫码登录。'));
+  $('accountDetail').textContent = current
+    ? '当前账号：' + (current.nickname || '未命名') + ' · ' + String(current.openid || '').slice(0, 6) + '…'
+    : '当前账号：未选择';
+  const avatarRef = current ? (current.openid || current.id) : '';
+  if (avatarRef !== state.avatarRef) {
+    state.avatarRef = avatarRef;
+    const box = $('avatar');
+    box.textContent = current ? (current.nickname || '微').slice(0, 1) : '微';
+    if (avatarRef) {
+      api.Avatar(avatarRef).then(src => {
+        if (state.avatarRef !== avatarRef || !src) return;
+        box.innerHTML = `<img alt="" src="${src}" style="width:58px;height:58px;object-fit:cover">`;
+      }).catch(() => {});
+    }
+  }
+  const body = $('accountBody');
+  if (!state.accounts.length) {
+    body.innerHTML = '<tr><td colspan="4" class="muted">暂无账号</td></tr>';
+  } else {
+    body.innerHTML = '';
+    state.accounts.forEach(account => {
+      const tr = document.createElement('tr');
+      const checked = account.last_checked_at ? new Date(account.last_checked_at * 1000).toLocaleTimeString() : '—';
+      // WeChat sometimes reports the literal nickname "无"; show the openid
+      // prefix instead so the row is identifiable rather than looking empty.
+      let label = account.nickname || account.alias || '';
+      if (!label || label === '无') label = '账号 ' + String(account.openid || account.id || '').slice(0, 8);
+      const openid = account.openid || account.id || '';
+      const badge = account.current ? ' · 当前' : '';
+      tr.innerHTML = `<td>${esc(label)}${badge}</td><td>${esc(account.status || 'unknown')}</td><td>${checked}</td>` +
+        `<td><button data-act="delete" style="padding:2px 8px">删除</button></td>`;
+      tr.querySelector('[data-act="delete"]').addEventListener('click', async () => {
+        try { await api.DeleteAccount(openid); logAppend('已删除账号：' + label); status('已删除账号', 'ok'); }
+        catch (e) { logAppend('删除失败：' + e); status('删除失败：' + e, 'bad'); }
+        await refresh(true);
+      });
+      body.appendChild(tr);
+    });
+  }
+}
+
+function capability(schema) {
+  if (!schema) return '—';
+  const required = Array.isArray(schema.required) ? schema.required : [];
+  if (required.length) return '需 ' + required.join(', ');
+  const props = Object.keys(schema.properties || {});
+  return props.length ? '可选 ' + props.length + ' 项' : '无参数';
+}
+
+function renderTools() {
+  const keyword = state.toolFilter.trim().toLowerCase();
+  const group = state.toolGroup;
+  const rows = state.tools.filter(t => (group === '全部分组' || t.group === group) &&
+    (!keyword || t.name.toLowerCase().includes(keyword) || String(t.description).toLowerCase().includes(keyword)));
+  const body = $('toolBody');
+  body.innerHTML = '';
+  rows.forEach(tool => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td><input type="checkbox" ${tool.enabled ? 'checked' : ''}></td>
+      <td><b>${esc(tool.name)}</b><div class="muted small">${esc(tool.group)}</div></td>
+      <td class="small">${esc(tool.description)}</td><td class="muted small">${esc(capability(tool.schema))}</td>`;
+    tr.querySelector('input').addEventListener('change', async event => {
+      const checked = event.target.checked;
+      event.stopPropagation();
+      status('正在' + (checked ? '启用' : '禁用') + '工具 ' + tool.name + '…', 'busy');
+      try {
+        state.tools = await api.SetTool(tool.name, checked);
+        renderTools();
+        status('已' + (checked ? '启用' : '禁用') + '工具 ' + tool.name, 'ok');
+      } catch (error) {
+        event.target.checked = !checked;
+        logAppend('工具开关失败：' + error);
+        status('工具开关失败：' + error, 'bad');
+      }
+    });
+    tr.addEventListener('click', () => {
+      document.querySelectorAll('#toolBody tr').forEach(row => row.classList.remove('selected'));
+      tr.classList.add('selected');
+      $('toolSchema').textContent = tool.schema
+        ? tool.name + '\n' + JSON.stringify(tool.schema, null, 2)
+        : tool.name + '\n' + (tool.description || '（无输入参数说明）');
+    });
+    body.appendChild(tr);
+  });
+  $('toolCount').textContent = `显示 ${rows.length} / 共 ${state.tools.length} 个工具 · 已启用 ${state.tools.filter(t => t.enabled).length}`;
+}
+
+function renderDumpStatus(st) {
+  const dir = $('exportDirCurrent');
+  if (!st || st.error) { dir.textContent = '导出服务未就绪' + (st && st.error ? '：' + st.error : ''); return; }
+  dir.textContent = st.export_dir || '（未配置）';
+  $('exportDir').value = st.export_dir || '';
+  const online = st.online === true;
+  $('exportHint').textContent = online ? '授权有效，可直接导出。' : '未登录：请到“扫码与账号”完成授权。';
+}
+async function refreshDumpStatus() {
+  if (!api || !api.DumpStatus) return;
+  try { renderDumpStatus(await api.DumpStatus()); } catch (e) { $('exportDirCurrent').textContent = '读取失败：' + e; }
+}
+
+function renderResults(payload) {
+  const body = $('resultBody');
+  if (payload.error || payload.grade === 'blocked') {
+    body.innerHTML = '<tr><td colspan="6" class="muted">' + esc(payload.error || '搜索被阻止：请先在“扫码与账号”登录并选择账号') + '</td></tr>';
+    return;
+  }
+  const raw = payload.items || payload.list || [];
+  // Official search cards may include software entries; only miniprograms and
+  // minigames are launchable here (game_type 3 = mini program, 2 = mini game).
+  const items = (Array.isArray(raw) ? raw : []).filter(item => item.kind === 'mini_program' || item.kind === 'mini_game' || item.game_type === 2 || item.game_type === 3);
+  if (!items.length) {
+    body.innerHTML = '<tr><td colspan="6" class="muted">没有小程序/小游戏结果（软件类结果已过滤）</td></tr>';
+    return;
+  }
+  body.innerHTML = '';
+  items.forEach(item => {
+    const appid = item.appid || item.id || '';
+    const kind = item.kind === 'mini_game' || item.game_type === 2 ? '小游戏' : '小程序';
+    const match = item.match_note || (item.name_contains_keyword ? '名称包含关键词' : '服务端推荐/其他匹配');
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${esc(appid)}</td><td>${esc(item.name || item.nickname || '')}</td>
+      <td class="small">${kind}</td>
+      <td class="small">${esc(match)}</td>
+      <td class="small">${esc(item.version || '')} ${item.bytes ? '(' + Math.round(item.bytes / 1024) + ' KB)' : ''}</td>
+      <td><button>填入</button></td>`;
+    tr.querySelector('button').addEventListener('click', () => { $('appidInput').value = appid; nav('search'); });
+    body.appendChild(tr);
+  });
+}
+
+async function refreshLogs() {
+  try {
+    const logs = (await api.Logs()) || [];
+    // Merge backend operation log with frontend event lines (session failures,
+    // launch results). Backend alone misses async failures that never reach it;
+    // frontend alone loses on reload. Keep both, dedupe, cap at 400 lines.
+    const merged = logs.concat(state.frontLogs).filter((v, i, a) => a.indexOf(v) === i).slice(-400);
+    $('logText').textContent = merged.join('\n');
+  } catch (e) { }
+}
+
+async function refresh(silent) {
+  if (!api) return;
+  const gen = ++generation;
+  if (!silent) setSide('loading', '正在同步状态…');
+  try {
+    const [sessions, login, config, mcp] = await Promise.all([api.Sessions(), api.LoginStatus(), api.Config(), api.MCPStatus()]);
+    if (gen !== generation) return;
+    renderSessions(sessions);
+    renderAccounts(login || {});
+    metrics(login || {}, config || {}, mcp || {});
+    if (document.activeElement !== $('loginPort')) $('loginPort').value = config.login_port || '';
+    if (document.activeElement !== $('mcpPort')) $('mcpPort').value = config.mcp_port || '';
+    $('mcpBind').value = config.mcp_bind || '127.0.0.1';
+    $('globalSwitch').checked = config.mcp_enabled !== false;
+    $('hideWindow').checked = !!config.hide_miniapp_window;
+    refreshDumpStatus();
+  } catch (error) {
+    if (gen === generation) {
+      setSide('bad', '状态同步失败');
+      if (!silent) status('刷新失败：' + error, 'bad');
+    }
+  }
+}
+
+const THEME_KEY = 'wmpf-theme';
+function applyTheme(mode) {
+  const dark = mode === 'dark' || (mode === 'auto' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+  document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+  document.querySelectorAll('[data-theme-choice]').forEach(b => b.classList.toggle('active', b.dataset.themeChoice === mode));
+  localStorage.setItem(THEME_KEY, mode);
+}
+function initTheme() {
+  const saved = localStorage.getItem(THEME_KEY) || 'auto';
+  applyTheme(saved);
+  const media = window.matchMedia('(prefers-color-scheme: dark)');
+  const handler = () => { if ((localStorage.getItem(THEME_KEY) || 'auto') === 'auto') applyTheme('auto'); };
+  if (media.addEventListener) media.addEventListener('change', handler); else if (media.addListener) media.addListener(handler);
+  document.querySelectorAll('[data-theme-choice]').forEach(button => {
+    button.addEventListener('click', () => applyTheme(button.dataset.themeChoice));
+  });
+}
+
+async function bootstrap() {
+  updateNavLabels();
+  initTheme();
+  setSide('loading', '正在启动服务…');
+  logAppend('界面：' + window.innerWidth + 'x' + window.innerHeight + ' · DPI ' + (window.devicePixelRatio || 1).toFixed(2));
+  document.querySelectorAll('.link').forEach(button => button.addEventListener('click', () => {
+    try { api.OpenURL(button.dataset.url); } catch (error) { }
+  }));
+  try {
+    $('aboutLogo').innerHTML = '<img alt="logo" src="' + (await api.Icon()) + '" style="width:56px;height:56px;object-fit:contain">';
+  } catch (error) { }
+  try {
+    const boot = await api.Bootstrap();
+    state.tools = boot.tools || [];
+    $('versionPill').textContent = 'v' + (boot.version || '0.1.0-go');
+    $('logText').textContent = (boot.logs || []).join('\n');
+    renderTools();
+    renderSessions(boot.sessions || []);
+    $('hideWindow').checked = !!(boot.config || {}).hide_miniapp_window;
+  } catch (error) {
+    status('初始化失败：' + error);
+  }
+  refresh();
+  setInterval(() => refresh(true), 5000);
+  setInterval(tickQR, 1000);
+  status('界面已就绪');
+}
+
+function tickQR() {
+  if (!state.qr || ['confirmed', 'cancelled', 'expired', 'unknown'].includes(state.qrState)) return;
+  const remaining = Math.max(0, Math.ceil((state.qr.expires_at - Date.now()) / 1000));
+  $('qrCountdown').textContent = String(Math.floor(remaining / 60)).padStart(2, '0') + ':' + String(remaining % 60).padStart(2, '0');
+  const ttl = Math.max(1, state.qr.ttl_seconds || 300);
+  $('qrProgress').value = Math.min(100, Math.round(remaining / ttl * 100));
+  if (remaining === 0 && state.qrState !== 'authorized') {
+    state.qrState = 'expired';
+    $('qrStatus').textContent = QR_STATUS.expired;
+    state.qrGen++;
+  }
+}
+
+async function createQR() {
+  const gen = ++state.qrGen;
+  $('qrCreate').disabled = true;
+  $('qrCreate').textContent = '刷新中…';
+  $('qrStatus').textContent = '二维码刷新中，请稍候…';
+  $('qrCountdown').textContent = '--:--';
+  $('qrProgress').value = 0;
+  $('qrBox').innerHTML = '<span class="muted small">正在刷新，请等待…</span>';
+  state.qr = null;
+  state.qrState = 'idle';
+  status('正在刷新二维码…');
+  try {
+    const value = await api.QRCreate();
+    if (gen !== state.qrGen) return;
+    state.qr = value; state.qrState = 'pending';
+    const src = String(value.image_base64 || '');
+    const box = $('qrBox');
+    box.classList.remove('scanned', 'done', 'failed');
+    box.innerHTML = `<img alt="二维码" src="${src.startsWith('data:') ? src : 'data:image/png;base64,' + src}">`;
+    $('qrStatus').textContent = QR_STATUS.pending;
+    logAppend('新二维码已生成，等待微信扫描');
+    status('等待微信扫描');
+    pollQR(gen, value.session_id);
+  } catch (error) {
+    state.qrState = 'unknown';
+    $('qrBox').innerHTML = '<span class="muted small">二维码生成失败</span>';
+    $('qrStatus').textContent = '二维码生成失败：' + String(error);
+    logAppend('二维码生成失败：' + error);
+    status('二维码生成失败');
+  }
+  $('qrCreate').textContent = '刷新二维码';
+  $('qrCreate').disabled = false;
+}
+
+async function pollQR(gen, session) {
+  const box = $('qrBox');
+  // The sidecar's check is a long poll: WeChat blocks up to ~25s per call, and
+  // on confirm the sidecar synchronously exchanges tokens + ManualAuth before
+  // returning "confirmed" (tens of seconds). Polls are already serialized by
+  // the await; just avoid hammering with 1.2s gaps and show a clear "confirming"
+  // state so the wait is not mistaken for a stuck UI.
+  while (gen === state.qrGen) {
+    const scanned = state.qrState === 'scanned' || state.qrState === 'authorized';
+    await new Promise(r => setTimeout(r, scanned ? 1500 : 2000));
+    if (gen !== state.qrGen) return;
+    try {
+      const result = await api.QRPoll(session);
+      const next = result.status || 'unknown';
+      const changed = state.qrState !== next;
+      state.qrState = next;
+      $('qrStatus').textContent = QR_STATUS[next] || next;
+      if (changed) status('扫码状态：' + (QR_STATUS[next] || next), next === 'confirmed' ? 'ok' : 'busy');
+
+      if (next === 'scanned' || next === 'authorized') {
+        // 已扫码：二维码淡化 + 遮罩文字，状态栏提示手机确认；尚未确认时保留重试入口
+        box.classList.add('scanned'); box.classList.remove('done', 'failed');
+        $('qrRetry').style.display = 'block';
+        continue;
+      }
+      if (next === 'confirmed') {
+        // 已确认：先标记处理中，调后端保存身份；成功/失败分别给不同视觉
+        box.classList.remove('scanned');
+        $('qrStatus').textContent = '登录确认中…';
+        $('qrRetry').style.display = 'none';
+        try {
+          const acc = await api.QRConfirm(session);
+          box.classList.add('done');
+          box.textContent = '✓ 登录成功';
+          $('qrStatus').textContent = QR_STATUS.confirmed + (acc && acc.nickname ? '（' + acc.nickname + '）' : '');
+          logAppend('扫码登录完成，账号已保存并设为当前账号');
+          status('登录成功，账号已保存', 'ok');
+        } catch (e) {
+          box.classList.add('failed');
+          box.textContent = '登录保存失败';
+          $('qrStatus').textContent = '登录失败：' + e;
+          $('qrRetry').style.display = 'block';
+          logAppend('保存账号失败：' + e);
+          status('保存账号失败：' + e, 'bad');
+        }
+        await refresh(true); break;
+      }
+      if (next === 'expired' || next === 'cancelled') {
+        box.classList.remove('scanned', 'done');
+        box.classList.add('failed');
+        box.textContent = next === 'expired' ? '二维码已过期' : '已取消登录';
+        $('qrRetry').style.display = 'none';
+        break;
+      }
+    } catch (error) {
+      box.classList.remove('scanned'); box.classList.add('failed');
+      box.textContent = '状态查询失败';
+      $('qrStatus').textContent = '状态查询失败：' + error;
+      $('qrRetry').style.display = 'block';
+      logAppend('二维码状态查询失败：' + error);
+      break;
+    }
+  }
+}
+
+document.querySelectorAll('.nav').forEach(button => button.addEventListener('click', () => nav(button.dataset.page)));
+$('svcStart').addEventListener('click', async () => {
+  setSide('loading', '正在启动登录服务…');
+  status('正在启动登录服务…', 'busy');
+  try {
+    const s = await api.StartLogin();
+    logAppend('登录服务：' + (s.healthy ? '正常' : (s.error || '未就绪')));
+    status(s.healthy ? '登录服务已启动' : '登录服务未就绪：' + (s.error || ''), s.healthy ? 'ok' : 'bad');
+  } catch (error) {
+    logAppend('启动登录服务失败：' + error);
+    status('启动登录服务失败：' + error, 'bad');
+  }
+  refresh(true);
+});
+$('svcStop').addEventListener('click', async () => {
+  status('正在停止登录服务…', 'busy');
+  try { await api.StopLogin(); logAppend('登录服务已停止'); status('登录服务已停止', 'ok'); }
+  catch (e) { logAppend(String(e)); status('停止登录服务失败：' + e, 'bad'); }
+  refresh(true);
+});
+$('savePorts').addEventListener('click', async () => {
+  status('正在保存设置…', 'busy');
+  try {
+    const bind = $('mcpBind').value;
+    const saved = await api.SavePorts(Number($('loginPort').value), Number($('mcpPort').value), bind);
+    logAppend('设置已保存：登录 ' + saved.login_port + ' / MCP ' + saved.mcp_port + '（监听 ' + bind + '）');
+    status('已保存：MCP 监听 ' + bind + '，服务已自动重启', 'ok');
+  } catch (error) {
+    logAppend('保存设置失败：' + error);
+    status('保存设置失败：' + error, 'bad');
+  }
+});
+$('copyStdio').addEventListener('click', async () => {
+  try {
+    await api.CopyMCPConfig('stdio');
+    logAppend('已复制 stdio MCP 配置');
+    status('stdio MCP 配置已复制；请保持登录服务运行', 'ok');
+  } catch (error) {
+    logAppend('复制 stdio 配置失败：' + error);
+    status('复制 stdio 配置失败：' + error, 'bad');
+  }
+});
+$('copyHttp').addEventListener('click', async () => {
+  try {
+    await api.CopyMCPConfig('http');
+    logAppend('已复制 HTTP MCP 配置');
+    status('HTTP MCP 配置已复制；其中包含本机凭证，请妥善保存', 'ok');
+  } catch (error) {
+    logAppend('复制 HTTP 配置失败：' + error);
+    status('复制 HTTP 配置失败：' + error, 'bad');
+  }
+});
+$('closeSelected').addEventListener('click', async () => {
+  if (!state.selectedSession) { status('请先选择会话', 'bad'); return; }
+  status('正在关闭会话 ' + state.selectedSession + '…', 'busy');
+  try {
+    const closed = await api.Close(state.selectedSession);
+    logAppend('已关闭会话 ' + state.selectedSession + '：' + (closed.cleanup_state || closed.state || ''));
+    status('已关闭会话 ' + state.selectedSession + '：' + (closed.cleanup_state || closed.state || ''), 'ok');
+    state.selectedSession = '';
+  } catch (error) {
+    logAppend('关闭失败：' + error);
+    status('关闭会话失败：' + error, 'bad');
+  }
+  refresh(true);
+});
+$('qrCreate').addEventListener('click', createQR);
+$('qrRetry').addEventListener('click', async () => {
+  if (!state.qr || !state.qr.session_id) { status('没有待确认的二维码', 'bad'); return; }
+  status('正在重试保存账号…', 'busy');
+  try {
+    await api.QRConfirm(state.qr.session_id);
+    state.qrState = 'confirmed';
+    $('qrStatus').textContent = QR_STATUS.confirmed;
+    $('qrRetry').style.display = 'none';
+    logAppend('已重试保存已授权账号');
+    status('账号已保存', 'ok');
+    await refresh(true);
+  } catch (error) {
+    logAppend('重试保存失败：' + error);
+    status('重试保存失败：' + error, 'bad');
+  }
+});
+$('accountSelect').addEventListener('change', async event => {
+  if (!event.target.value) return;
+  status('正在切换当前账号…', 'busy');
+  try {
+    await api.SelectAccount(event.target.value);
+    logAppend('已切换当前账号');
+    status('已切换当前账号', 'ok');
+  } catch (e) {
+    logAppend(String(e));
+    status('切换账号失败：' + e, 'bad');
+  }
+  refresh(true);
+});
+$('checkAccount').addEventListener('click', async () => {
+  status('正在检查当前账号…', 'busy');
+  try {
+    const result = await api.RefreshAccount();
+    if (result && result.ok === false) {
+      const message = result.message || result.reason || result.code || '账号检查失败';
+      const relogin = result.relogin_required ? ' 请重新扫码登录。' : '';
+      logAppend('账号检查失败：' + message);
+      status(message + relogin, 'bad');
+    } else {
+      logAppend('账号检查完成');
+      status('账号检查完成：' + ((result && result.status) || 'ok'), 'ok');
+    }
+  } catch (error) {
+    logAppend('账号检查失败：' + error);
+    status('账号检查失败：' + error, 'bad');
+  }
+  refresh(true);
+});
+$('refreshAccounts').addEventListener('click', async () => {
+  status('正在刷新账号列表…', 'busy');
+  await refresh(true);
+  status('账号列表已刷新：' + state.accounts.length + ' 个', 'ok');
+});
+$('toolFilter').addEventListener('input', event => { state.toolFilter = event.target.value; renderTools(); });
+$('toolGroup').addEventListener('change', event => { state.toolGroup = event.target.value; renderTools(); });
+$('bulkEnable').addEventListener('click', async () => { await bulkTools(true); });
+$('bulkDisable').addEventListener('click', async () => { await bulkTools(false); });
+$('globalSwitch').addEventListener('change', async event => {
+  const enabled = event.target.checked;
+  status('正在' + (enabled ? '开启' : '关闭') + ' MCP 总开关…', 'busy');
+  try {
+    await api.GlobalTools(enabled);
+    logAppend('MCP 总开关：' + enabled);
+    status('MCP 总开关已' + (enabled ? '开启' : '关闭'), 'ok');
+  } catch (error) {
+    event.target.checked = !enabled;
+    logAppend(String(error));
+    status('切换 MCP 总开关失败：' + error, 'bad');
+  }
+  refresh(true);
+});
+async function bulkTools(enabled) {
+  const names = visibleToolNames();
+  if (!names.length) { status('当前筛选没有可操作的工具', 'bad'); return; }
+  status('正在批量' + (enabled ? '启用' : '禁用') + ' ' + names.length + ' 个工具…', 'busy');
+  try {
+    state.tools = await api.BulkTools(names, enabled);
+    renderTools();
+    logAppend('批量' + (enabled ? '启用' : '禁用') + ' ' + names.length + ' 个工具');
+    status('已批量' + (enabled ? '启用' : '禁用') + ' ' + names.length + ' 个工具', 'ok');
+  } catch (error) {
+    logAppend('批量操作失败：' + error);
+    status('批量操作失败：' + error, 'bad');
+  }
+}
+function visibleToolNames() {
+  const keyword = state.toolFilter.trim().toLowerCase();
+  return state.tools.filter(t => (state.toolGroup === '全部分组' || t.group === state.toolGroup) &&
+    (!keyword || t.name.toLowerCase().includes(keyword) || String(t.description).toLowerCase().includes(keyword))).map(t => t.name);
+}
+$('searchBtn').addEventListener('click', async () => {
+  const keyword = $('keyword').value.trim();
+  if (!keyword) { status('请输入关键词'); return; }
+  if (!state.accounts.length) {
+    status('请先在“扫码与账号”登录并选择账号');
+    nav('accounts');
+    return;
+  }
+  $('searchBtn').disabled = true;
+  status('正在搜索“' + keyword + '”…', 'busy');
+  try {
+    const payload = await api.Search(keyword, $('searchSource').value);
+    renderResults(payload);
+    const count = Array.isArray(payload.items) ? payload.items.length : 0;
+    status(payload.error ? '搜索未完成：' + payload.error : '搜索完成：' + count + ' 条', payload.error ? 'bad' : 'ok');
+  } catch (error) {
+    $('resultBody').innerHTML = '<tr><td colspan="5" class="muted">搜索失败：' + esc(String(error)) + '</td></tr>';
+    status('搜索失败：' + error, 'bad');
+    logAppend('搜索失败：' + error);
+  }
+  $('searchBtn').disabled = false;
+});
+$('keyword').addEventListener('keydown', event => { if (event.key === 'Enter') $('searchBtn').click(); });
+$('launchBtn').addEventListener('click', async () => {
+  const appid = $('appidInput').value.trim();
+  const rawSeconds = $('launchSeconds').value.trim();
+  const seconds = rawSeconds === '' ? 0 : Number(rawSeconds);
+  if (!/^wx[0-9a-f]{16}$/.test(appid)) { status('AppID 格式应为 wx + 16 位十六进制'); return; }
+  if (!Number.isSafeInteger(seconds) || seconds < 0 || (seconds > 0 && seconds < 60)) {
+    status('会话时长留空或填 0 表示不限时；定时结束至少填写 60 秒');
+    return;
+  }
+  if (!state.accounts.length) {
+    status('请先在“扫码与账号”登录并选择账号');
+    nav('accounts');
+    return;
+  }
+  $('launchBtn').disabled = true;
+  status('正在启动小程序…');
+  try {
+    const result = await api.Launch(appid, $('entryInput').value.trim(), seconds, $('hideWindow').checked);
+    logAppend('启动 ' + appid + '：' + (result.state || result.reason || 'ok'));
+    status('已发起启动，等待登录确认');
+    nav('overview');
+  } catch (error) {
+    status('启动失败：' + String(error));
+    logAppend('启动失败：' + error);
+  }
+  $('launchBtn').disabled = false;
+  refresh();
+});
+$('gotoSessions').addEventListener('click', () => nav('overview'));
+
+$('saveExportDir').addEventListener('click', async () => {
+  try { renderDumpStatus(await api.SaveExportDir($('exportDir').value.trim())); status('导出目录已保存', 'ok'); }
+  catch (e) { status('保存导出目录失败：' + e, 'bad'); }
+});
+$('pickExportDir').addEventListener('click', async () => {
+  try {
+    const picked = await api.PickExportDir();
+    if (picked) { $('exportDir').value = picked; status('已选择目录，请点“保存目录”', 'busy'); }
+  } catch (e) { status('选择目录失败：' + e, 'bad'); }
+});
+async function pollExport(taskId) {
+  const out = $('exportResult');
+  const btn = $('exportBtn');
+  btn.disabled = true; btn.textContent = '导出中…';
+  const t0 = Date.now();
+  while (true) {
+    try {
+      const st = await api.ExportStatus('status', taskId, 1);
+      const state = st && st.state || 'unknown';
+      const elapsed = st && st.elapsed_ms ? Math.round(st.elapsed_ms / 1000) : Math.round((Date.now() - t0) / 1000);
+      // Real progress from the sidecar SSE stream: done/total packages or files.
+      const pr = st && st.progress || {};
+      let bar, detail;
+      if (pr.total > 0) {
+        const pct = Math.min(100, Math.round(pr.done / pr.total * 100));
+        const filled = Math.round(pct / 5);
+        bar = '[' + '█'.repeat(filled) + '░'.repeat(20 - filled) + '] ' + pct + '%';
+        detail = pr.done + '/' + pr.total + (pr.stage === 'reconstruct' ? ' 个文件' : ' 个分包') + (pr.module ? ' · ' + pr.module : '');
+      } else {
+        bar = '[░░░░░░░░░░░░░░░░░░░░] --';
+        detail = pr.message || '正在获取分包清单…';
+      }
+      if (state === 'queued' || state === 'running') {
+        out.textContent = bar + ' ' + detail + '\n' + (st.phase || '处理中') + ' · 已用 ' + elapsed + 's';
+        status('导出进行中：' + detail, 'busy');
+      } else if (state === 'done') {
+        out.textContent = '✓ 导出完成 · 用时 ' + elapsed + 's\n' + JSON.stringify(st.result || {}, null, 2);
+        status('导出完成', 'ok');
+        logAppend('导出任务 ' + taskId + ' 完成（' + elapsed + 's）');
+        btn.disabled = false; btn.textContent = '导出此小程序包';
+        refreshDumpStatus();
+        return;
+      } else if (state === 'failed' || state === 'cancelled') {
+        out.textContent = '✗ ' + (state === 'failed' ? '导出失败' : '已取消') + ' · 用时 ' + elapsed + 's\n' + (st.reason || '');
+        status(state === 'failed' ? '导出失败：' + (st.reason || '') : '导出已取消', 'bad');
+        logAppend('导出任务 ' + taskId + ' ' + state + '：' + (st.reason || ''));
+        btn.disabled = false; btn.textContent = '导出此小程序包';
+        return;
+      } else {
+        out.textContent = '任务状态：' + state + '\n' + JSON.stringify(st, null, 2);
+      }
+    } catch (e) {
+      out.textContent = '进度查询失败：' + e + '\n（任务可能仍在后台运行，稍后可重试查询）';
+      status('进度查询失败：' + e, 'bad');
+      btn.disabled = false; btn.textContent = '导出此小程序包';
+      return;
+    }
+    await new Promise(r => setTimeout(r, 1000));
+  }
+}
+
+$('exportBtn').addEventListener('click', async () => {
+  const appid = $('exportAppid').value.trim();
+  const username = $('exportUsername').value.trim();
+  if (!appid && !username) { status('请填写 AppID 或原始 ID'); return; }
+  if (appid && !/^wx[0-9a-f]{16}$/.test(appid)) { status('AppID 格式应为 wx + 16 位十六进制'); return; }
+  $('exportBtn').disabled = true;
+  const out = $('exportResult');
+  out.textContent = '正在提交导出任务…';
+  status('正在提交导出任务…', 'busy');
+  try {
+    const r = await api.ExportPackage(appid, username, $('exportDir').value.trim(),
+      parseInt($('exportVersionType').value, 10) || 0, $('exportVersion').value.trim(),
+      $('exportAll').checked, $('exportUnpack').checked, $('exportBeautify').checked);
+    if (!r || !r.ok || !r.task_id) {
+      out.textContent = '提交失败：' + JSON.stringify(r || {}, null, 2);
+      status('导出提交失败', 'bad');
+      $('exportBtn').disabled = false;
+      return;
+    }
+    out.textContent = '任务已提交：' + r.task_id + '\n' + (r.out_dir || '') + '\n开始查询进度…';
+    status('导出任务已提交，后台处理中', 'busy');
+    pollExport(r.task_id);
+  } catch (e) {
+    out.textContent = '导出失败：' + e;
+    status('导出失败：' + e, 'bad');
+    logAppend('导出失败：' + e);
+    $('exportBtn').disabled = false;
+  }
+});
+
+$('clearLogs').addEventListener('click', async () => {
+  await api.ClearLogs();
+  $('logText').textContent = '';
+  status('日志已清空', 'ok');
+});
+
+function updateNavLabels() {
+  const compact = window.innerWidth < 760;
+  $('brand').textContent = compact ? 'WMPF' : '小程序工作台';
+  const titles = {
+    overview: '运行概览', accounts: '扫码与账号', search: '搜索与打开',
+    dynamic: '动态分析', tools: 'MCP 工具', logs: '运行日志', about: '关于'
+  };
+  document.querySelectorAll('.nav').forEach(button => {
+    const label = button.querySelector('.navText');
+    if (label) label.textContent = compact ? (button.dataset.short || titles[button.dataset.page] || '') : (titles[button.dataset.page] || '');
+  });
+}
+window.addEventListener('resize', updateNavLabels);
+window.addEventListener('DOMContentLoaded', bootstrap);
+</script>
+<script src="./js/dynamic/common.js"></script>
+<script src="./js/dynamic/capture-common.js"></script>
+<script src="./js/dynamic/cloud.js"></script>
+<script src="./js/dynamic/userscript.js"></script>
+<script src="./js/dynamic/wxapi.js"></script>
+<script src="./js/dynamic/route.js"></script>
+<script src="./js/dynamic/scan.js"></script>
+<script src="./js/dynamic/index.js"></script>
+</body>
+</html>
