@@ -35,6 +35,17 @@
 
 ---
 
+## 1.0.5 新增能力
+
+- **任意小程序启动**：已收录 AppID 直启；未收录 AppID 通过可配置 `bridge_appid` 走二跳打开，目标激活后真实关闭跳板，CDP 不再回连跳板。
+- **运行期分析**：新增路由地图与跳转守卫、wx API 应用层抓包、云函数捕获与显式重放；捕获记录支持筛选、排序、分页、批量删除和一键重放。
+- **自定义脚本**：新增持久 Userscript，保存后按 AppID 在目标 setup 阶段自动注入。
+- **敏感信息扫描**：默认规则扩展至 26 条，默认扫描当前打开小程序的已还原源码，支持自定义规则、HTML 报告、分页与原始内容展示。
+- **账号与启动稳定性**：统一账号目录，兼容 QR 图片多种返回形式，增加 `-109` 凭据过期诊断；修正 AutoLogin 后的就绪判定，启动更少失败。
+- **GUI / MCP**：分组侧栏、白天/黑夜主题、模块化前端文件、DevTools 默认浏览器打开；MCP 扩展至 40 个中文工具。
+
+---
+
 ## ⚠️ 能力边界（务必先读）
 
 <div align="center">
@@ -76,49 +87,30 @@
 <div align="center">
 
 ### 运行概览
-服务状态、会话状态与 MCP 配置一键复制
+服务状态、会话状态与 MCP 配置一键复制；深色/浅色主题自动跟随系统
 
 <img src="docs/images/wx_00.png" alt="运行概览" width="860">
 
 <br><br>
 
-### 扫码与账号
-微信扫码登录，账号仅存本机，界面只显示脱敏标识
-
-<img src="docs/images/wx_01.png" alt="扫码与账号" width="860">
-
-<br><br>
-
 ### 搜索与打开
-应用宝在线搜索，选中 AppID 后独立启动并调试（一次一个会话）
+应用宝在线搜索；已收录 AppID 可直启，未收录 AppID 通过二跳打开并进入可调试 runtime
 
-<img src="docs/images/wx_02.png" alt="搜索与打开" width="860">
-
-<br><br>
-
-### 运行中的小程序
-左侧会话状态，右侧为独立启动的小程序窗口
-
-<img src="docs/images/wx_03.png" alt="运行中的小程序" width="860">
+<img src="docs/images/wx_01.png" alt="搜索与打开" width="860">
 
 <br><br>
 
-### MCP 工具面板
-40 个工具（截图为早期版本）可搜索、分组、逐项或批量开关
+### 动态分析
+云函数、Userscript、wx API、路由地图与敏感扫描集中管理
 
-<img src="docs/images/wx_04.png" alt="MCP 工具面板" width="860">
-
-<br><br>
-
-### Agent 侧工具列表
-
-<img src="docs/images/wx_05.png" alt="Agent 工具列表" width="860">
+<img src="docs/images/wx_02.png" alt="动态分析" width="860">
 
 <br><br>
 
-### 关于与免责声明
+### wx API 抓包
+按 HTTP 语义展示请求/响应，支持筛选、排序、分页、批量删除与重放
 
-<img src="docs/images/about.png" alt="关于与免责声明" width="860">
+<img src="docs/images/wx_03.png" alt="wx API 抓包" width="860">
 
 </div>
 
@@ -131,7 +123,7 @@
 | 依赖 | 说明 |
 |:---|:---|
 | Windows 10/11 x64 | 仅支持 Windows |
-| **WMPF 运行时 5.10.7300.414** | **必需但不在本仓库分发**，须从应用宝 PC 安装目录 `WmpfRuntime\5.10.7300.414\` 获取，详见下方 |
+| **WMPF 运行时 5.10.7300.414** | **必需但不在本仓库分发**；可从专用仓库 [5.10.7300.414](https://github.com/yiyihuohuo/5.10.7300.414) 下载，详见下方 |
 | Go 1.23+ | 构建登录服务与 MCP/GUI |
 | Visual Studio 2022 x64 C++ 工具链 | 构建 C++ 宿主与观测 worker（vswhere 自动查找） |
 | WebView2 Runtime | GUI 使用，系统通常已自带 |
@@ -141,7 +133,7 @@
 ### 2. 运行时依赖（重要）
 
 <details open>
-<summary>本项目依赖一整套 WMPF 运行时（约 386 MB），<b>不随仓库或 Release 分发</b>，需用户自行从应用宝 PC 获取。</summary>
+<summary>本项目依赖一整套 WMPF 运行时（约 386 MB），<b>不随主仓库或 Release 分发</b>；已单独发布到 https://github.com/yiyihuohuo/5.10.7300.414 。</summary>
 
 **先澄清一个容易困惑的点：目录里有 `WeChatAppEx.exe`、`flue.dll`、`wxgame_client.dll` 等微信名字的文件，为什么还说"从应用宝 PC 获取"？**
 
@@ -160,9 +152,11 @@ WMPF 是微信团队开发的"小程序容器"引擎，以微信命名，但作�
 
 获取步骤：
 
-1. 安装应用宝 PC 版；
-2. 进入其安装目录，找到 `WmpfRuntime\5.10.7300.414\`（整目录，含 `host\` 与 `runtime\`，约 386 MB）；
-3. 将该目录整体拷贝到工作台根目录的 `runtime\5.10.7300.414\`。
+1. 打开运行库专用仓库：https://github.com/yiyihuohuo/5.10.7300.414 ；
+2. 下载仓库内容（约 386 MB，含 `host\` 与 `runtime\`）；`flue.dll` 使用 Git LFS 存储；
+3. 将该目录整体放到工作台根目录的 `runtime\5.10.7300.414\`。
+
+也可以从应用宝 PC 安装目录中复制同版本目录，但专用仓库更便于复现和校验。
 
 没有该运行时，登录 / 搜索 / 源码还原可用，但 **独立启动与调试无法工作**。仓库 `.gitignore` 已排除 `runtime/`、`data/`、`dist/`、`build/`，这些运行态文件不会被提交。
 
