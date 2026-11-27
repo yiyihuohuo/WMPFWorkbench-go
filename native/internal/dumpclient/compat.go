@@ -30,10 +30,12 @@ var (
 
 // supportsKeepAlive distinguishes the current sidecar from older builds where
 // the dynamic /account/{openid} DELETE route makes the same path answer 405.
-func (c *Client) supportsKeepAlive(ctx context.Context) bool {
+// The error return means the probe could not reach a conclusion; callers must
+// not replace a process on an inconclusive probe.
+func (c *Client) supportsKeepAlive(ctx context.Context) (bool, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodOptions, c.opts.BaseURL+keepAlivePath, nil)
 	if err != nil {
-		return false
+		return false, err
 	}
 	cli := *c.http
 	if cli.Timeout == 0 || cli.Timeout > 3*time.Second {
@@ -41,19 +43,31 @@ func (c *Client) supportsKeepAlive(ctx context.Context) bool {
 	}
 	resp, err := cli.Do(req)
 	if err != nil {
-		return false
+		return false, err
 	}
 	defer resp.Body.Close()
 	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4<<10))
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-		return true
+		return true, nil
 	}
+	allowPost := false
 	for _, method := range strings.Split(resp.Header.Get("Allow"), ",") {
 		if strings.EqualFold(strings.TrimSpace(method), http.MethodPost) {
-			return true
+			allowPost = true
+			break
 		}
 	}
-	return false
+	switch resp.StatusCode {
+	case http.StatusMethodNotAllowed:
+		if allowPost {
+			return true, nil
+		}
+		return false, nil
+	case http.StatusNotFound:
+		return false, nil
+	default:
+		return false, fmt.Errorf("探测账号保活接口返回 HTTP %d", resp.StatusCode)
+	}
 }
 
 func (c *Client) incompatibleSidecarError() error {

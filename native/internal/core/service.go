@@ -354,7 +354,7 @@ func New(p app.Paths) *Service {
 		RemoteHome: remoteHome,
 		AdminKey:   config.String(cv, "dump_admin_key"),
 		AutoStart:  true,
-		ManagedDir: p.Data,
+		ManagedDir: filepath.Join(p.Data, "bin"),
 	})
 	launchClient := launch.New(a)
 	runtimeManager := hostruntime.New(p, cfg, a)

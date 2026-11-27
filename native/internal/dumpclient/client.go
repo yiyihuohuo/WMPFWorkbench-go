@@ -257,7 +257,11 @@ func (c *Client) Ensure(ctx context.Context) error {
 		if _, err := c.Status(ctx); err != nil {
 			return fmt.Errorf("端口 %s 已被不兼容服务占用：%w", net.JoinHostPort(c.baseHost(), strconv.Itoa(c.port())), err)
 		}
-		if c.supportsKeepAlive(ctx) {
+		supported, probeErr := c.keepAliveCompatible(ctx)
+		if probeErr != nil {
+			return probeErr
+		}
+		if supported {
 			return nil
 		}
 		if !c.opts.AutoStart {
@@ -268,8 +272,14 @@ func (c *Client) Ensure(ctx context.Context) error {
 		}
 		c.mu.Lock()
 		defer c.mu.Unlock()
-		if c.Reachable(ctx) && c.supportsKeepAlive(ctx) {
-			return nil
+		if c.Reachable(ctx) {
+			supported, probeErr = c.keepAliveCompatible(ctx)
+			if probeErr != nil {
+				return probeErr
+			}
+			if supported {
+				return nil
+			}
 		}
 		if err := c.replaceIncompatibleSidecar(ctx); err != nil {
 			return err
@@ -285,7 +295,11 @@ func (c *Client) Ensure(ctx context.Context) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.Reachable(ctx) {
-		if c.supportsKeepAlive(ctx) {
+		supported, probeErr := c.keepAliveCompatible(ctx)
+		if probeErr != nil {
+			return probeErr
+		}
+		if supported {
 			return nil
 		}
 		if err := c.replaceIncompatibleSidecar(ctx); err != nil {
@@ -293,6 +307,14 @@ func (c *Client) Ensure(ctx context.Context) error {
 		}
 	}
 	return c.startLocked(ctx)
+}
+
+func (c *Client) keepAliveCompatible(ctx context.Context) (bool, error) {
+	supported, err := c.supportsKeepAlive(ctx)
+	if err != nil {
+		return false, fmt.Errorf("无法确认 wxapkg-dump 版本（账号保活探测失败）：%w；为避免误杀，未自动替换进程", err)
+	}
+	return supported, nil
 }
 
 func (c *Client) ensureExe() error {

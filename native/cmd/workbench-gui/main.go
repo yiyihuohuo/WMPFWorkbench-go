@@ -56,6 +56,7 @@ type Backend struct {
 	skipMCP     bool // tests set this to avoid launching a real listener
 	qrLastState string
 	loginState  string // last account-state signature; avoids log spam every 5s
+	bundleError string
 
 	devtoolsFrontend *exec.Cmd
 	devtoolsPort     string
@@ -65,6 +66,9 @@ type Backend struct {
 
 func (b *Backend) Startup(ctx context.Context) {
 	b.ctx = ctx
+	if b.bundleError != "" {
+		b.logf("释放内置组件失败：%s", b.bundleError)
+	}
 	// Stream account-client diagnostics into the GUI log panel.
 	b.svc.Account.Logf = b.logf
 	// The HTTP MCP endpoint in the clipboard config must actually listen, or
@@ -229,12 +233,13 @@ func toolGroup(name string) string {
 
 func (b *Backend) Bootstrap() map[string]any {
 	return map[string]any{
-		"root":     b.svc.Paths.Root,
-		"version":  appVersion,
-		"sessions": b.svc.Sessions(),
-		"tools":    b.Tools(),
-		"config":   b.Config(),
-		"logs":     b.Logs(),
+		"root":         b.svc.Paths.Root,
+		"version":      appVersion,
+		"sessions":     b.svc.Sessions(),
+		"tools":        b.Tools(),
+		"config":       b.Config(),
+		"logs":         b.Logs(),
+		"bundle_error": b.bundleError,
 	}
 }
 
@@ -1034,7 +1039,11 @@ func main() {
 	if err != nil {
 		os.Exit(1)
 	}
-	if helpers, err := bundle.Ensure(p.Data); err == nil {
+	bundleErr := ""
+	if helpers, err := bundle.Ensure(p.Data); err != nil {
+		bundleErr = err.Error()
+		fmt.Fprintln(os.Stderr, "释放内置组件失败:", err)
+	} else {
 		bundle.Apply(helpers)
 	}
 	svc := core.New(p)
@@ -1044,7 +1053,7 @@ func main() {
 		svc.Runtime = hostruntime.New(p, svc.Config, svc.Account)
 	}
 	defer svc.Close()
-	backend := &Backend{svc: svc, cfgPath: *cfgPath}
+	backend := &Backend{svc: svc, cfgPath: *cfgPath, bundleError: bundleErr}
 	// Route asynchronous runtime failures (e.g. early mint/ticket errors that
 	// never reach the observer's events.jsonl) into the GUI log panel.
 	if rt, ok := svc.Runtime.(*hostruntime.Manager); ok {

@@ -12,14 +12,17 @@ import (
 
 func TestSupportsKeepAlive(t *testing.T) {
 	cases := []struct {
-		name  string
-		code  int
-		allow string
-		want  bool
+		name    string
+		code    int
+		allow   string
+		want    bool
+		wantErr bool
 	}{
 		{name: "options ok", code: http.StatusOK, want: true},
 		{name: "allow post", code: http.StatusMethodNotAllowed, allow: "POST", want: true},
 		{name: "old delete only", code: http.StatusMethodNotAllowed, allow: "DELETE", want: false},
+		{name: "not found", code: http.StatusNotFound, want: false},
+		{name: "server error is inconclusive", code: http.StatusInternalServerError, wantErr: true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -31,7 +34,11 @@ func TestSupportsKeepAlive(t *testing.T) {
 			}))
 			defer srv.Close()
 			c := New(Options{BaseURL: srv.URL})
-			if got := c.supportsKeepAlive(context.Background()); got != tc.want {
+			got, err := c.supportsKeepAlive(context.Background())
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("supportsKeepAlive err=%v wantErr=%v", err, tc.wantErr)
+			}
+			if !tc.wantErr && got != tc.want {
 				t.Fatalf("supportsKeepAlive=%v want %v", got, tc.want)
 			}
 		})
