@@ -294,6 +294,10 @@ WMPFWorkbench-go/
   data/ dist/ build/ out/       运行态与构建产物（.gitignore 排除，不提交）
 ```
 
+## 致谢
+
+感谢 [LINUX DO](https://linux.do/) 社区提供开放、友善的技术交流平台。
+
 ## 开源协议
 
 本项目采用 **Apache-2.0** 授权（见 [LICENSE](LICENSE)、[NOTICE](NOTICE)）：可自由使用、修改、分发（含商业用途），并附带明确的专利授权；要求是保留版权声明、许可文本与 `NOTICE` 归属声明，修改文件需注明变更。
