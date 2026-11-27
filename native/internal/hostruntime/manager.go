@@ -365,6 +365,25 @@ func (e *ReadyFailure) Error() string {
 	if e == nil {
 		return "未知启动失败"
 	}
+	if e.Reason == "repeated_reset" {
+		yesNo := func(v bool) string {
+			if v {
+				return "是"
+			}
+			return "否"
+		}
+		parts := []string{fmt.Sprintf("WMPF 宿主在启动阶段连续重置 %d 次，目标未进入可调试状态", e.ResetCount)}
+		parts = append(parts, fmt.Sprintf("阶段=%s，登录态=%s，宿主连接=%s，应用启动=%s，setup=%s",
+			e.Phase, yesNo(e.LoginOK), yesNo(e.HostConnected), yesNo(e.AppStartSeen), yesNo(e.SetupSeen)))
+		if e.LastLoginCode != 0 {
+			parts = append(parts, fmt.Sprintf("登录码=%d", e.LastLoginCode))
+		}
+		if e.PreloadSlot != "" {
+			parts = append(parts, "preload="+e.PreloadSlot)
+		}
+		parts = append(parts, "请查看会话 observation/events.jsonl；必要时重新扫码登录或更换目标重试")
+		return strings.Join(parts, "；")
+	}
 	parts := []string{e.Reason}
 	if e.Detail != "" {
 		parts = append(parts, e.Detail)
