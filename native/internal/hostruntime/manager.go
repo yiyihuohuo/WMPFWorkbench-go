@@ -329,9 +329,36 @@ func (m *Manager) signalCleanup(s *session) {
 // ReadyFailure is the typed readiness error used by callers to decide whether
 // a launch should be restarted and to report a concrete reason.
 type ReadyFailure struct {
-	Reason      string
-	Detail      string
-	PreloadSlot string
+	Reason        string
+	Detail        string
+	PreloadSlot   string
+	Phase         string
+	ResetCount    int
+	LoginOK       bool
+	HostConnected bool
+	AppStartSeen  bool
+	SetupSeen     bool
+	LastLoginCode int
+}
+
+func failurePhase(s *session) string {
+	if s == nil {
+		return "unknown"
+	}
+	switch {
+	case s.setupSeen || s.cdpOK:
+		return "setup"
+	case s.appStartSeen:
+		return "app_start"
+	case s.loginOK:
+		return "login_ready"
+	case s.hostConnected:
+		return "host_connected"
+	case s.started:
+		return "worker_started"
+	default:
+		return "host_bootstrap"
+	}
 }
 
 func (e *ReadyFailure) Error() string {
@@ -383,7 +410,13 @@ func (m *Manager) failReady(s *session, reason string, detail ...string) {
 	}
 	text := strings.Join(detail, " ")
 	s.readyFailReason = reason
-	s.readyErr = &ReadyFailure{Reason: reason, Detail: text, PreloadSlot: s.preloadSlot}
+	s.readyErr = &ReadyFailure{
+		Reason: reason, Detail: text, PreloadSlot: s.preloadSlot,
+		Phase: failurePhase(s), ResetCount: s.resetCount,
+		LoginOK: s.loginOK, HostConnected: s.hostConnected,
+		AppStartSeen: s.appStartSeen, SetupSeen: s.setupSeen || s.cdpOK,
+		LastLoginCode: s.lastLoginCode,
+	}
 	s.readyFailOnce.Do(func() { close(s.readyFailed) })
 	m.notifyReadyLocked(s)
 }
