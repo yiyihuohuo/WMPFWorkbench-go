@@ -57,7 +57,7 @@ func TestCollectAndWriteDiagnosticZip(t *testing.T) {
 
 	dir := filepath.Join(root, "data", "desktop", "sessions", "ccdd112233445566")
 	writeTestFile(t, filepath.Join(dir, "observation", "events.jsonl"),
-		"{\"event\":\"worker.started\",\"pid\":4321}\n{\"event\":\"script\",\"payload\":{\"event\":\"host.Reset\"}}\n")
+		"{\"event\":\"worker.started\",\"pid\":4321}\n{\"event\":\"host.stdout\",\"payload\":{\"line\":\"[authcb] GetUserInfo uin=25985012628405866 status=2\"}}\n{\"event\":\"script\",\"payload\":{\"event\":\"host.Reset\"}}\n")
 	writeTestFile(t, filepath.Join(dir, "worker.json"), `{"session_id":"ccdd112233445566","appid":"wxde8ac0a21135c07d"}`)
 	failure := map[string]any{
 		"session_id": "ccdd112233445566",
@@ -70,7 +70,7 @@ func TestCollectAndWriteDiagnosticZip(t *testing.T) {
 	writeTestFile(t, filepath.Join(dir, "failure.json"), string(failureJSON))
 	writeTestFile(t, filepath.Join(dir, "inputs", "metadata.json"), `{"appid":"wxde8ac0a21135c07d"}`)
 	agentLog := filepath.Join(tempLogs, "wmpf-agent-4321.log")
-	writeTestFile(t, agentLog, "[diag] attach.host.Reset=0\n")
+	writeTestFile(t, agentLog, "[diag] attach.host.Reset=0 openid=owabcdefghijklmnopqrst token=SUPERSECRET_TOKEN\n")
 	failedAt, err := time.Parse(time.RFC3339, "2026-11-27T12:59:06+08:00")
 	if err != nil {
 		t.Fatal(err)
@@ -97,6 +97,17 @@ func TestCollectAndWriteDiagnosticZip(t *testing.T) {
 	}
 	if manifest.SessionID != "ccdd112233445566" || manifest.AppID != "wxde8ac0a21135c07d" {
 		t.Fatalf("bad manifest: %#v", manifest)
+	}
+	manifestBytes, _ := json.Marshal(manifest)
+	for _, sensitive := range []string{"25985012628405866", "SUPERSECRET_TOKEN", "owabcdefghijklmnopqrst", "buhuo"} {
+		for _, e := range entries {
+			if strings.Contains(string(e.data), sensitive) {
+				t.Fatalf("entry %s still contains %q: %s", e.Name, sensitive, e.data)
+			}
+		}
+		if strings.Contains(string(manifestBytes), sensitive) {
+			t.Fatalf("manifest still contains %q: %s", sensitive, manifestBytes)
+		}
 	}
 
 	dest := filepath.Join(t.TempDir(), "diagnostics.zip")
@@ -133,6 +144,23 @@ func TestCollectAndWriteDiagnosticZip(t *testing.T) {
 	}
 	if decoded.Reason != "repeated_reset" || len(decoded.Files) < 6 {
 		t.Fatalf("bad manifest in zip: %#v", decoded)
+	}
+}
+
+func TestRedactDiagnosticText(t *testing.T) {
+	root := `E:\work\app`
+	temp := `C:\Users\alice\AppData\Local\Temp`
+	input := `uin=12345678901234567 token=abc openid=owabcdefghijklmnopqrst path=` + root + `\data\config.json temp=` + temp + `\x.log`
+	out := redactDiagnosticText(input, root, temp)
+	for _, sensitive := range []string{"12345678901234567", "abc", "owabcdefghijklmnopqrst", `E:\work\app`, `C:\Users\alice`} {
+		if strings.Contains(out, sensitive) {
+			t.Fatalf("redaction left %q in %q", sensitive, out)
+		}
+	}
+	for _, marker := range []string{"uin=***", "token=***", "<APP_ROOT>", "<TEMP>"} {
+		if !strings.Contains(out, marker) {
+			t.Fatalf("redaction lost marker %s in %q", marker, out)
+		}
 	}
 }
 
