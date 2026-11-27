@@ -50,6 +50,7 @@ type diagnosticManifest struct {
 	Reason     string               `json:"reason"`
 	State      string               `json:"state"`
 	FailedAt   string               `json:"failed_at"`
+	Redaction  string               `json:"redaction"`
 	Files      []diagnosticFileInfo `json:"files"`
 }
 
@@ -171,6 +172,7 @@ func diagnosticFailedAt(failure map[string]any, dir string) time.Time {
 func collectDiagnosticEntries(root, dir string, failure map[string]any, uiLogs []string) ([]diagnosticEntry, diagnosticManifest, error) {
 	total := int64(0)
 	entries := []diagnosticEntry{}
+	temp := os.TempDir()
 	add := func(name, source string, required bool, limit int64) error {
 		data, truncated, err := readDiagnosticFile(source, limit)
 		if err != nil {
@@ -179,6 +181,7 @@ func collectDiagnosticEntries(root, dir string, failure map[string]any, uiLogs [
 			}
 			return nil
 		}
+		data = []byte(redactDiagnosticText(string(data), root, temp))
 		if total+int64(len(data)) > diagnosticArchiveLimit {
 			if required {
 				return fmt.Errorf("诊断文件超过 %d MiB 上限", diagnosticArchiveLimit/(1<<20))
@@ -190,7 +193,7 @@ func collectDiagnosticEntries(root, dir string, failure map[string]any, uiLogs [
 			mod = st.ModTime()
 		}
 		entries = append(entries, diagnosticEntry{
-			Name: name, Source: source, Bytes: int64(len(data)),
+			Name: name, Source: redactDiagnosticText(source, root, temp), Bytes: int64(len(data)),
 			SHA256: sha256Hex(data), Truncated: truncated, data: data, mod: mod,
 		})
 		total += int64(len(data))
@@ -248,7 +251,7 @@ func collectDiagnosticEntries(root, dir string, failure map[string]any, uiLogs [
 	}
 
 	if len(uiLogs) > 0 {
-		data := []byte(strings.Join(uiLogs, "\n") + "\n")
+		data := []byte(redactDiagnosticText(strings.Join(uiLogs, "\n")+"\n", root, temp))
 		if total+int64(len(data)) <= diagnosticArchiveLimit {
 			entries = append(entries, diagnosticEntry{
 				Name: "ui-log.txt", Bytes: int64(len(data)), SHA256: sha256Hex(data),
@@ -271,13 +274,14 @@ func collectDiagnosticEntries(root, dir string, failure map[string]any, uiLogs [
 	manifest := diagnosticManifest{
 		AppVersion: appVersion,
 		ExportedAt: time.Now().Format(time.RFC3339),
-		Root:       root,
-		SessionDir: dir,
+		Root:       redactDiagnosticText(root, root, temp),
+		SessionDir: redactDiagnosticText(dir, root, temp),
 		SessionID:  sessionID,
 		AppID:      diagnosticString(failure, "appid"),
-		Reason:     diagnosticString(failure, "reason"),
+		Reason:     redactDiagnosticText(diagnosticString(failure, "reason"), root, temp),
 		State:      diagnosticString(failure, "state"),
 		FailedAt:   diagnosticString(failure, "failed_at"),
+		Redaction:  "uin/openid/token/cookie/本地路径已脱敏",
 		Files:      files,
 	}
 	manifestData, err := json.MarshalIndent(manifest, "", "  ")
@@ -301,7 +305,7 @@ AppID：%s
 - ui-log.txt：工作台界面日志。
 - manifest.json：文件清单、大小与 SHA256。
 
-说明：manifest.json 中保留了本机绝对路径，便于定位问题；如需转发给第三方，请先检查并按需脱敏。
+脱敏：导出时已移除 uin、openid、token、cookie 等账户标识/凭据，并把本机路径替换为 <APP_ROOT> / <TEMP> / <USER>；事件名、错误码和时间戳保留。
 `, sessionID, manifest.AppID, manifest.Reason, manifest.FailedAt)
 	now := time.Now()
 	entries = append([]diagnosticEntry{
