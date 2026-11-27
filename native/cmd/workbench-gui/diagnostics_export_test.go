@@ -26,14 +26,16 @@ func TestFindLatestFailedSession(t *testing.T) {
 	base := filepath.Join(root, "data", "desktop", "sessions")
 	older := filepath.Join(base, "aaaaaaaaaaaaaaaa")
 	newer := filepath.Join(base, "bbbbbbbbbbbbbbbb")
-	writeTestFile(t, filepath.Join(older, "failure.json"), `{"session_id":"aaaaaaaaaaaaaaaa","appid":"wxold","state":"error"}`)
-	writeTestFile(t, filepath.Join(newer, "failure.json"), `{"session_id":"bbbbbbbbbbbbbbbb","appid":"wxnew","state":"error"}`)
+	olderFailure := filepath.Join(older, "observation", "failure.json")
+	newerFailure := filepath.Join(newer, "observation", "failure.json")
+	writeTestFile(t, olderFailure, `{"session_id":"aaaaaaaaaaaaaaaa","appid":"wxold","state":"error"}`)
+	writeTestFile(t, newerFailure, `{"session_id":"bbbbbbbbbbbbbbbb","appid":"wxnew","state":"error"}`)
 	oldTime := time.Now().Add(-2 * time.Hour)
 	newTime := time.Now().Add(-time.Hour)
-	if err := os.Chtimes(filepath.Join(older, "failure.json"), oldTime, oldTime); err != nil {
+	if err := os.Chtimes(olderFailure, oldTime, oldTime); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Chtimes(filepath.Join(newer, "failure.json"), newTime, newTime); err != nil {
+	if err := os.Chtimes(newerFailure, newTime, newTime); err != nil {
 		t.Fatal(err)
 	}
 
@@ -43,6 +45,27 @@ func TestFindLatestFailedSession(t *testing.T) {
 	}
 	if dir != newer || diagnosticString(failure, "appid") != "wxnew" {
 		t.Fatalf("wrong session selected: dir=%s failure=%#v", dir, failure)
+	}
+}
+
+func TestFindLatestFailedSessionFallsBackToLegacyPath(t *testing.T) {
+	root := t.TempDir()
+	sess := filepath.Join(root, "data", "desktop", "sessions", "eeeeeeeeeeeeeeee")
+	legacy := filepath.Join(sess, "failure.json")
+	writeTestFile(t, legacy, `{"session_id":"eeeeeeeeeeeeeeee","appid":"wxlegacy","state":"error"}`)
+
+	dir, failure, err := findLatestFailedSession(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dir != sess || diagnosticString(failure, "appid") != "wxlegacy" {
+		t.Fatalf("legacy failure not found: dir=%s failure=%#v", dir, failure)
+	}
+
+	preferred := filepath.Join(sess, "observation", "failure.json")
+	writeTestFile(t, preferred, `{"session_id":"eeeeeeeeeeeeeeee","appid":"wxlegacy","state":"error"}`)
+	if got := diagnosticFailurePath(sess); got != preferred {
+		t.Fatalf("observation path should win: %s", got)
 	}
 }
 
@@ -67,7 +90,7 @@ func TestCollectAndWriteDiagnosticZip(t *testing.T) {
 		"failed_at":  "2026-11-27T12:59:06+08:00",
 	}
 	failureJSON, _ := json.Marshal(failure)
-	writeTestFile(t, filepath.Join(dir, "failure.json"), string(failureJSON))
+	writeTestFile(t, filepath.Join(dir, "observation", "failure.json"), string(failureJSON))
 	writeTestFile(t, filepath.Join(dir, "inputs", "metadata.json"), `{"appid":"wxde8ac0a21135c07d"}`)
 	agentLog := filepath.Join(tempLogs, "wmpf-agent-4321.log")
 	writeTestFile(t, agentLog, "[diag] attach.host.Reset=0 openid=owabcdefghijklmnopqrst token=SUPERSECRET_TOKEN\n")

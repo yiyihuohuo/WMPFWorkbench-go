@@ -116,7 +116,7 @@ func findLatestFailedSession(root string) (string, map[string]any, error) {
 		if !d.IsDir() {
 			continue
 		}
-		path := filepath.Join(base, d.Name(), "failure.json")
+		path := diagnosticFailurePath(filepath.Join(base, d.Name()))
 		st, statErr := os.Stat(path)
 		if statErr != nil || !st.Mode().IsRegular() {
 			continue
@@ -157,13 +157,23 @@ func diagnosticString(m map[string]any, key string) string {
 	return ""
 }
 
+// diagnosticFailurePath prefers the path actually written by hostruntime.
+// The session-root location is accepted for older artifacts only.
+func diagnosticFailurePath(dir string) string {
+	preferred := filepath.Join(dir, "observation", "failure.json")
+	if st, err := os.Stat(preferred); err == nil && st.Mode().IsRegular() {
+		return preferred
+	}
+	return filepath.Join(dir, "failure.json")
+}
+
 func diagnosticFailedAt(failure map[string]any, dir string) time.Time {
 	if text := diagnosticString(failure, "failed_at"); text != "" {
 		if t, err := time.Parse(time.RFC3339, text); err == nil {
 			return t
 		}
 	}
-	if st, err := os.Stat(filepath.Join(dir, "failure.json")); err == nil {
+	if st, err := os.Stat(diagnosticFailurePath(dir)); err == nil {
 		return st.ModTime()
 	}
 	return time.Now()
@@ -206,7 +216,7 @@ func collectDiagnosticEntries(root, dir string, failure map[string]any, uiLogs [
 	if err := add("worker.json", filepath.Join(dir, "worker.json"), true, diagnosticArchiveLimit); err != nil {
 		return nil, diagnosticManifest{}, err
 	}
-	if err := add("failure.json", filepath.Join(dir, "failure.json"), true, diagnosticArchiveLimit); err != nil {
+	if err := add("failure.json", diagnosticFailurePath(dir), true, diagnosticArchiveLimit); err != nil {
 		return nil, diagnosticManifest{}, err
 	}
 	_ = add("inputs/metadata.json", filepath.Join(dir, "inputs", "metadata.json"), false, diagnosticArchiveLimit)
