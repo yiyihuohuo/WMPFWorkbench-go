@@ -606,7 +606,12 @@ func (b *Backend) Launch(appid, entry string, seconds int, hide bool) (any, erro
 		ctxInfo += ", 入口=" + entry
 	}
 	b.logf("打开并调试：%s", ctxInfo)
-	result, err := b.svc.Call(b.ctx, "launch", map[string]any{"appid": appid, "path": entry, "seconds": float64(seconds), "hide_window": hide})
+	launchCtx, cancel := context.WithTimeout(b.ctx, 120*time.Second)
+	defer cancel()
+	result, err := b.svc.Call(launchCtx, "launch", map[string]any{
+		"appid": appid, "path": entry, "seconds": float64(seconds),
+		"hide_window": hide, "wait_ready": true, "restart_on_failure": true,
+	})
 	if err != nil {
 		// preflight failures (e.g. missing runtime DLL) arrive here with a full,
 		// actionable message from ValidateRuntime; show it verbatim.

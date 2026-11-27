@@ -1051,11 +1051,12 @@ $('launchBtn').addEventListener('click', async () => {
     return;
   }
   $('launchBtn').disabled = true;
-  status('正在启动小程序…');
+  status('正在启动并等待调试就绪…');
   try {
     const result = await api.Launch(appid, $('entryInput').value.trim(), seconds, $('hideWindow').checked);
-    logAppend('启动 ' + appid + '：' + (result.state || result.reason || 'ok'));
-    status('已发起启动，等待登录确认');
+    const state = result.state || result.reason || 'ok';
+    logAppend('启动 ' + appid + '：' + state);
+    status(state === 'debug_ready' ? '小程序已进入可调试状态' : '启动返回：' + state, state === 'debug_ready' ? 'ok' : 'bad');
     nav('overview');
   } catch (error) {
     status('启动失败：' + String(error));
