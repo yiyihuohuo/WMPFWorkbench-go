@@ -349,6 +349,11 @@ progress::-webkit-progress-value{background:var(--accent)}
           <p class="aboutMeta" style="margin:8px 0 0">跟随系统时按 Windows 的深色/浅色设置自动切换。</p>
         </div>
         <div class="card">
+          <h2 class="sectionTitle">诊断日志</h2>
+          <p class="aboutMeta">导出最近一次失败会话的原生事件、worker 配置、失败记录与 agent 日志，打包为 ZIP 便于反馈分析。</p>
+          <div class="row" style="gap:8px;margin-top:8px"><button id="exportDiagnostics" class="primary">导出诊断日志（ZIP）</button></div>
+        </div>
+        <div class="card">
           <h2 class="sectionTitle">免责声明</h2>
           <p class="aboutMeta" style="white-space:pre-line">1. 本软件仅供个人学习、研究与安全技术交流使用，不得用于商业用途或任何非法目的。
 2. 使用本软件分析的小程序、应用与数据，须为本人所有或已获得权利人明确授权；未经授权不得抓取、复制、存储或传播他人数据与个人信息。
@@ -906,6 +911,22 @@ $('copyHttp').addEventListener('click', async () => {
   } catch (error) {
     logAppend('复制 HTTP 配置失败：' + error);
     status('复制 HTTP 配置失败：' + error, 'bad');
+  }
+});
+$('exportDiagnostics').addEventListener('click', async () => {
+  const button = $('exportDiagnostics');
+  button.disabled = true;
+  status('正在导出诊断日志…', 'busy');
+  try {
+    const path = await api.ExportDiagnostics();
+    if (!path) { status('已取消导出', 'ok'); return; }
+    logAppend('诊断日志已导出：' + path);
+    status('诊断日志已导出，可发送给开发者分析', 'ok');
+  } catch (error) {
+    logAppend('导出诊断日志失败：' + error);
+    status('导出诊断日志失败：' + error, 'bad');
+  } finally {
+    button.disabled = false;
   }
 });
 $('closeSelected').addEventListener('click', async () => {
