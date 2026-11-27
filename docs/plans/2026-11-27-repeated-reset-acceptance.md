@@ -210,3 +210,16 @@ all 43 files in SHA256SUMS = valid
 Users can download the ZIP directly in a browser, extract it, and copy the
 `host/` and `runtime/` directories into the workbench's
 `runtime/5.10.7300.414/` directory.
+
+## Export tolerates missing session files
+
+A user-reported case showed that `failure.json` was found correctly but
+`observation/events.jsonl` did not exist for that failed session. The exporter
+treated `events.jsonl` and `worker.json` as required, so a single missing file
+aborted the whole export with `The system cannot find the file specified`.
+
+All session files are now optional. Missing files are recorded in
+`manifest.json` under `missing_files` and in `missing.txt` inside the archive;
+export succeeds as long as at least one diagnostic file exists. The archive
+README explains that missing files do not invalidate the remaining evidence.
+Add `TestCollectWithoutEventsFileStillExports` covers the reported case.
