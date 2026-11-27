@@ -85,6 +85,7 @@ type session struct {
 	inputsDir                                      string
 	manualMintStarted                              bool
 	resetCount                                     int
+	resetTimes                                     []time.Time
 }
 
 func New(p app.Paths, cfg *config.Store, a *account.Client) *Manager {
@@ -423,6 +424,37 @@ func (m *Manager) signalReady(s *session) {
 	s.readyOnce.Do(func() { close(s.ready) })
 	m.notifyReadyLocked(s)
 }
+
+// noteResetLocked records a native host reset and reports whether the launch
+// is unhealthy enough to fail. Three quick resets before any progress are a
+// hard failure; after progress, allow a short burst and fail only on a larger
+// repeated pattern.
+func (m *Manager) noteResetLocked(s *session) bool {
+	if s == nil {
+		return false
+	}
+	now := time.Now()
+	s.resetTimes = append(s.resetTimes, now)
+	cutoff := now.Add(-30 * time.Second)
+	kept := s.resetTimes[:0]
+	for _, at := range s.resetTimes {
+		if at.After(cutoff) {
+			kept = append(kept, at)
+		}
+	}
+	s.resetTimes = kept
+	s.resetCount = len(s.resetTimes)
+	recent := 0
+	recentCutoff := now.Add(-10 * time.Second)
+	for _, at := range s.resetTimes {
+		if at.After(recentCutoff) {
+			recent++
+		}
+	}
+	progress := s.loginOK || s.hostConnected || s.appStartSeen || s.setupSeen || s.cdpOK
+	return (!progress && recent >= 3) || len(s.resetTimes) >= 5
+}
+
 func (m *Manager) failReady(s *session, reason string, detail ...string) {
 	if s == nil || s.readyFailed == nil || channelClosed(s.ready) {
 		return
@@ -725,8 +757,7 @@ func (m *Manager) event(s *session, event string, payload map[string]any) {
 			case "host.EnsureConnected.timeout":
 				m.failReady(s, "host_timeout", inner)
 			case "host.Reset":
-				s.resetCount++
-				if s.resetCount >= 3 {
+				if m.noteResetLocked(s) {
 					m.failReady(s, "repeated_reset", fmt.Sprintf("count=%d", s.resetCount))
 				}
 			case "devtools.Start", "devtools.SetupContext", "runtime.Construct", "runtime.ReusePreload":
@@ -748,8 +779,7 @@ func (m *Manager) event(s *session, event string, payload map[string]any) {
 	case "host.EnsureConnected.timeout":
 		m.failReady(s, "host_timeout", event)
 	case "host.Reset":
-		s.resetCount++
-		if s.resetCount >= 3 {
+		if m.noteResetLocked(s) {
 			m.failReady(s, "repeated_reset", fmt.Sprintf("count=%d", s.resetCount))
 		}
 	case "script.error", "host.spawn_error", "host.job_error", "session.attach_error", "script.create_error", "script.load_error":

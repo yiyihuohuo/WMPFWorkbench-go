@@ -3,6 +3,7 @@ package hostruntime
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 )
@@ -108,6 +109,42 @@ func TestWaitReadyFailsOnRepeatedHostReset(t *testing.T) {
 	var failure *ReadyFailure
 	if !errors.As(err, &failure) || failure.Reason != "repeated_reset" {
 		t.Fatalf("expected repeated_reset failure, got %v", err)
+	}
+}
+
+func TestHostResetAfterProgressDoesNotFailAtThree(t *testing.T) {
+	m, s := waitReadySession("wx1644df8e4fe6f725")
+	loginOK(s)
+	for i := 0; i < 3; i++ {
+		m.event(s, "script", map[string]any{"event": "host.Reset"})
+	}
+	if channelClosed(s.readyFailed) {
+		t.Fatal("three resets after login progress must not fail immediately")
+	}
+	for i := 0; i < 2; i++ {
+		m.event(s, "script", map[string]any{"event": "host.Reset"})
+	}
+	if !channelClosed(s.readyFailed) {
+		t.Fatal("five resets must fail even after progress")
+	}
+}
+
+func TestRepeatedResetErrorIncludesDiagnostics(t *testing.T) {
+	m, s := waitReadySession("wx1644df8e4fe6f725")
+	for i := 0; i < 3; i++ {
+		m.event(s, "script", map[string]any{"event": "host.Reset"})
+	}
+	_, err := m.WaitReady(context.Background(), s.id)
+	var failure *ReadyFailure
+	if !errors.As(err, &failure) {
+		t.Fatalf("expected ReadyFailure, got %v", err)
+	}
+	if failure.Phase != "host_bootstrap" || failure.ResetCount != 3 || failure.LoginOK {
+		t.Fatalf("bad diagnostics: %#v", failure)
+	}
+	if !strings.Contains(err.Error(), "WMPF 宿主在启动阶段连续重置 3 次") ||
+		!strings.Contains(err.Error(), "阶段=host_bootstrap") {
+		t.Fatalf("unhelpful error: %v", err)
 	}
 }
 
