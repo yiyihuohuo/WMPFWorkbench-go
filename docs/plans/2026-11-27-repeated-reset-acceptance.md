@@ -176,3 +176,37 @@ Source was pushed to both branches:
 main                          = 8920f42616dd0c8c368f70f181977349db6835a0
 stable/two-hop-release-public = 8920f42616dd0c8c368f70f181977349db6835a0
 ```
+
+## Full runtime download release
+
+A direct-download release was published in the runtime repository so users no
+longer need `git lfs` to obtain the real runtime files:
+
+```text
+https://github.com/yiyihuohuo/WMPF-Runtime-5.10.7300.414/releases/tag/runtime-5.10.7300.414-full
+```
+
+Assets:
+
+```text
+WMPF-Runtime-5.10.7300.414-full.zip
+  size   = 188874181
+  sha256 = E37F981843C2C710F8D5970671C88B3805D31C44328EA176DBE9D8D102C6C3C7
+
+SHA256SUMS.txt
+  size   = 3919
+  entries = 43
+```
+
+The ZIP was downloaded back from GitHub and verified:
+
+```text
+zip_remote hash match = true
+runtime/flue.dll size = 210967088
+runtime/flue.dll sha256 = a66d9388ff0b6fbd79045551e9d5b22dadc460ebd1b5659733361921617e22f6
+all 43 files in SHA256SUMS = valid
+```
+
+Users can download the ZIP directly in a browser, extract it, and copy the
+`host/` and `runtime/` directories into the workbench's
+`runtime/5.10.7300.414/` directory.
