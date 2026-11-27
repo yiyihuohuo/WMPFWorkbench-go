@@ -170,6 +170,80 @@ func TestCollectAndWriteDiagnosticZip(t *testing.T) {
 	}
 }
 
+func TestCollectWithoutEventsFileStillExports(t *testing.T) {
+	root := t.TempDir()
+	tempLogs := filepath.Join(root, "temp")
+	if err := os.MkdirAll(tempLogs, 0755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TEMP", tempLogs)
+	t.Setenv("TMP", tempLogs)
+
+	dir := filepath.Join(root, "data", "desktop", "sessions", "ffffffffffffffff")
+	writeTestFile(t, filepath.Join(dir, "worker.json"), `{"session_id":"ffffffffffffffff","appid":"wxmissing"}`)
+	failure := map[string]any{
+		"session_id": "ffffffffffffffff",
+		"appid":      "wxmissing",
+		"reason":     "repeated_reset",
+		"state":      "error",
+		"failed_at":  "2026-11-27T20:21:08+08:00",
+	}
+	failureJSON, _ := json.Marshal(failure)
+	writeTestFile(t, filepath.Join(dir, "observation", "failure.json"), string(failureJSON))
+
+	entries, manifest, err := collectDiagnosticEntries(root, dir, failure, nil)
+	if err != nil {
+		t.Fatalf("missing events.jsonl must not abort export: %v", err)
+	}
+	names := map[string]bool{}
+	for _, e := range entries {
+		names[e.Name] = true
+	}
+	for _, want := range []string{"README.txt", "manifest.json", "missing.txt", "failure.json", "worker.json"} {
+		if !names[want] {
+			t.Fatalf("missing %s in %#v", want, names)
+		}
+	}
+	found := false
+	for _, m := range manifest.Missing {
+		if strings.HasPrefix(m, "events.jsonl <-") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("events.jsonl absence not recorded: %#v", manifest.Missing)
+	}
+
+	dest := filepath.Join(t.TempDir(), "diagnostics.zip")
+	if err := writeDiagnosticZip(dest, entries); err != nil {
+		t.Fatal(err)
+	}
+	reader, err := zip.OpenReader(dest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	missingEntry := ""
+	for _, f := range reader.File {
+		if f.Name != "missing.txt" {
+			continue
+		}
+		rc, openErr := f.Open()
+		if openErr != nil {
+			t.Fatal(openErr)
+		}
+		buf, readErr := io.ReadAll(rc)
+		rc.Close()
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		missingEntry = string(buf)
+	}
+	if !strings.Contains(missingEntry, "events.jsonl") {
+		t.Fatalf("missing.txt lacks events.jsonl: %q", missingEntry)
+	}
+}
+
 func TestRedactDiagnosticText(t *testing.T) {
 	root := `E:\work\app`
 	temp := `C:\Users\alice\AppData\Local\Temp`

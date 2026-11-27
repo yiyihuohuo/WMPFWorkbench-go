@@ -52,6 +52,7 @@ type diagnosticManifest struct {
 	FailedAt   string               `json:"failed_at"`
 	Redaction  string               `json:"redaction"`
 	Files      []diagnosticFileInfo `json:"files"`
+	Missing    []string             `json:"missing_files,omitempty"`
 }
 
 // ExportDiagnostics packages the latest failed launch into a ZIP chosen by the
@@ -183,20 +184,19 @@ func collectDiagnosticEntries(root, dir string, failure map[string]any, uiLogs [
 	total := int64(0)
 	entries := []diagnosticEntry{}
 	temp := os.TempDir()
-	add := func(name, source string, required bool, limit int64) error {
+	missing := []string{}
+	add := func(name, source string, limit int64) {
 		data, truncated, err := readDiagnosticFile(source, limit)
 		if err != nil {
-			if required {
-				return fmt.Errorf("读取 %s 失败：%w", source, err)
-			}
-			return nil
+			reason := redactDiagnosticText(err.Error(), root, temp)
+			missing = append(missing, name+" <- "+redactDiagnosticText(source, root, temp)+"：读取失败："+reason)
+			return
 		}
 		data = []byte(redactDiagnosticText(string(data), root, temp))
 		if total+int64(len(data)) > diagnosticArchiveLimit {
-			if required {
-				return fmt.Errorf("诊断文件超过 %d MiB 上限", diagnosticArchiveLimit/(1<<20))
-			}
-			return nil
+			missing = append(missing, fmt.Sprintf("%s <- %s：超过 %d MiB 归档上限", name,
+				redactDiagnosticText(source, root, temp), diagnosticArchiveLimit/(1<<20)))
+			return
 		}
 		mod := time.Now()
 		if st, statErr := os.Stat(source); statErr == nil {
@@ -207,20 +207,13 @@ func collectDiagnosticEntries(root, dir string, failure map[string]any, uiLogs [
 			SHA256: sha256Hex(data), Truncated: truncated, data: data, mod: mod,
 		})
 		total += int64(len(data))
-		return nil
 	}
 
-	if err := add("events.jsonl", filepath.Join(dir, "observation", "events.jsonl"), true, diagnosticArchiveLimit); err != nil {
-		return nil, diagnosticManifest{}, err
-	}
-	if err := add("worker.json", filepath.Join(dir, "worker.json"), true, diagnosticArchiveLimit); err != nil {
-		return nil, diagnosticManifest{}, err
-	}
-	if err := add("failure.json", diagnosticFailurePath(dir), true, diagnosticArchiveLimit); err != nil {
-		return nil, diagnosticManifest{}, err
-	}
-	_ = add("inputs/metadata.json", filepath.Join(dir, "inputs", "metadata.json"), false, diagnosticArchiveLimit)
-	_ = add("bridge.jsonl", filepath.Join(dir, "observation", "bridge.jsonl"), false, diagnosticArchiveLimit)
+	add("events.jsonl", filepath.Join(dir, "observation", "events.jsonl"), diagnosticArchiveLimit)
+	add("worker.json", filepath.Join(dir, "worker.json"), diagnosticArchiveLimit)
+	add("failure.json", diagnosticFailurePath(dir), diagnosticArchiveLimit)
+	add("inputs/metadata.json", filepath.Join(dir, "inputs", "metadata.json"), diagnosticArchiveLimit)
+	add("bridge.jsonl", filepath.Join(dir, "observation", "bridge.jsonl"), diagnosticArchiveLimit)
 
 	failedAt := diagnosticFailedAt(failure, dir)
 	start := failedAt.Add(-10 * time.Minute)
@@ -251,7 +244,9 @@ func collectDiagnosticEntries(root, dir string, failure map[string]any, uiLogs [
 		if strings.Contains(base, "devtools") {
 			folder = "devtools"
 		}
-		if err := add(folder+"/"+base, item.path, false, diagnosticLogTailLimit); err != nil {
+		before := len(entries)
+		add(folder+"/"+base, item.path, diagnosticLogTailLimit)
+		if len(entries) == before {
 			continue
 		}
 		count++
@@ -271,9 +266,16 @@ func collectDiagnosticEntries(root, dir string, failure map[string]any, uiLogs [
 		}
 	}
 
+	if len(entries) == 0 {
+		return nil, diagnosticManifest{}, fmt.Errorf("未找到可导出的诊断文件；该失败会话目录可能已被清理")
+	}
 	sessionID := diagnosticString(failure, "session_id")
 	if sessionID == "" {
 		sessionID = filepath.Base(dir)
+	}
+	missingText := ""
+	if len(missing) > 0 {
+		missingText = strings.Join(missing, "\n") + "\n"
 	}
 	files := make([]diagnosticFileInfo, 0, len(entries))
 	for _, e := range entries {
@@ -293,6 +295,7 @@ func collectDiagnosticEntries(root, dir string, failure map[string]any, uiLogs [
 		FailedAt:   diagnosticString(failure, "failed_at"),
 		Redaction:  "uin/openid/token/cookie/本地路径已脱敏",
 		Files:      files,
+		Missing:    missing,
 	}
 	manifestData, err := json.MarshalIndent(manifest, "", "  ")
 	if err != nil {
@@ -313,15 +316,23 @@ AppID：%s
 - agent/*.log：native agent 的 hook 与注入日志。
 - devtools/*.log：DevTools 前端进程日志（若当时存在）。
 - ui-log.txt：工作台界面日志。
-- manifest.json：文件清单、大小与 SHA256。
+- manifest.json：文件清单、大小与 SHA256；missing_files 记录本次未找到的文件。
+- missing.txt：存在缺失文件时列出缺失原因；缺失不影响其余文件导出。
 
 脱敏：导出时已移除 uin、openid、token、cookie 等账户标识/凭据，并把本机路径替换为 <APP_ROOT> / <TEMP> / <USER>；事件名、错误码和时间戳保留。
 `, sessionID, manifest.AppID, manifest.Reason, manifest.FailedAt)
 	now := time.Now()
-	entries = append([]diagnosticEntry{
+	prefix := []diagnosticEntry{
 		{Name: "README.txt", Bytes: int64(len(readme)), SHA256: sha256Hex([]byte(readme)), data: []byte(readme), mod: now},
 		{Name: "manifest.json", Bytes: int64(len(manifestData)), SHA256: sha256Hex(manifestData), data: manifestData, mod: now},
-	}, entries...)
+	}
+	if missingText != "" {
+		prefix = append(prefix, diagnosticEntry{
+			Name: "missing.txt", Bytes: int64(len(missingText)), SHA256: sha256Hex([]byte(missingText)),
+			data: []byte(missingText), mod: now,
+		})
+	}
+	entries = append(prefix, entries...)
 	return entries, manifest, nil
 }
 
