@@ -483,9 +483,10 @@ function renderSessions(rows) {
     const shownAppid = row.active_appid || row.appid;
     const jumpMark = row.jumped ? ' <span class="muted">（跳转）</span>' : '';
     const debugUrl = debugListUrl(row.cdp_websocket);
-    const debugCell = debugUrl
+    const debugReady = row.state === 'debug_ready' || row.debug_connected === true;
+    const debugCell = debugReady && debugUrl
       ? `<button class="debug-link" data-url="${esc(debugUrl)}" title="${esc(debugUrl)}">打开调试器</button>`
-      : '<span class="muted">未就绪</span>';
+      : '<span class="muted">等待就绪</span>';
     tr.innerHTML = `<td>${esc(shownAppid)}${jumpMark}</td><td>${esc(row.state)}</td>
       <td>${row.login_confirmed ? '已确认' : '等待'}</td>
       <td>${row.debug_connected ? '已连接' : '等待'}</td>
