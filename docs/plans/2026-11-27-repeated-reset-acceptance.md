@@ -223,3 +223,47 @@ All session files are now optional. Missing files are recorded in
 export succeeds as long as at least one diagnostic file exists. The archive
 README explains that missing files do not invalidate the remaining evidence.
 Add `TestCollectWithoutEventsFileStillExports` covers the reported case.
+
+## Old sidecar 405 and safe replacement
+
+The reported account check failures were:
+
+```text
+wxapkg-dump 响应无效（HTTP 405）
+```
+
+The bundled sidecar source contains `POST /api/ilink/account/keepalive`, and
+`OPTIONS` on that route returns `allow: POST`. An older sidecar has the dynamic
+`/api/ilink/account/{openid}` DELETE route instead, so the same POST is
+answered with 405. The GUI previously reused whatever process already listened
+on port 8788 after checking only `/api/ilink/status`; it therefore kept the old
+process forever.
+
+The old behavior also extracted embedded helpers in place to
+`<data>/bin/<name>`, which cannot replace a running executable on Windows.
+
+Changes:
+
+- `bundle.Ensure` releases every bundle into
+  `<data>/bin/versions/<content-hash>/`. Running files are never overwritten;
+  the current version and one previous version are kept for rollback.
+- `dumpclient.Ensure` probes `OPTIONS /api/ilink/account/keepalive`.
+  - 2xx or `Allow: POST` means compatible.
+  - 405 without POST or 404 means an old sidecar.
+  - Any other status/network error is inconclusive and never triggers a kill.
+- An old sidecar is stopped only when all of these hold:
+  - the listener image is exactly `wxapkg-dump.exe`;
+  - its full image path is under `<data>/bin`;
+  - its path differs from the bundled helper about to be launched;
+  - the process is still the same PID/path on a second check.
+- If the path is outside `<data>/bin`, or the path equals the bundled helper
+  (meaning extraction failed), the process is not touched and the error tells
+  the user to update/reinstall.
+- `ClassifyLoginError` now reports `sidecar_outdated` instead of the misleading
+  "重新扫码" message.
+- GUI startup now surfaces `bundle.Ensure` failures in the log instead of
+  silently falling back to old helpers.
+
+Tests cover versioned extraction without overwriting a legacy file, cleanup,
+OPTIONS tri-state probing, netstat/process path lookup, path boundary checks,
+same-path protection, and refusal to kill an outside process.
