@@ -86,6 +86,8 @@ type session struct {
 	manualMintStarted                              bool
 	resetCount                                     int
 	resetTimes                                     []time.Time
+	workerPID, hostPID                             int
+	recentEvents                                   []string
 }
 
 func New(p app.Paths, cfg *config.Store, a *account.Client) *Manager {
@@ -340,6 +342,49 @@ type ReadyFailure struct {
 	AppStartSeen  bool
 	SetupSeen     bool
 	LastLoginCode int
+	WorkerPID     int
+	HostPID       int
+	LastEvents    []string
+}
+
+// noteEventLocked keeps a short, payload-free tail of the event stream so a
+// failed launch can say what actually happened immediately before the failure.
+// Script events are labelled with their inner event name because that is the
+// level operators recognise from observation/events.jsonl.
+func noteEventLocked(s *session, event string, payload map[string]any) {
+	if s == nil {
+		return
+	}
+	label := event
+	if inner, ok := payload["event"].(string); ok && inner != "" {
+		label = event + ":" + inner
+	}
+	s.recentEvents = append(s.recentEvents, label)
+	if len(s.recentEvents) > 5 {
+		s.recentEvents = append([]string(nil), s.recentEvents[len(s.recentEvents)-5:]...)
+	}
+}
+
+func optionalPID(payload map[string]any, key string) int {
+	if payload == nil {
+		return 0
+	}
+	switch v := payload[key].(type) {
+	case float64:
+		return int(v)
+	case int:
+		return v
+	case int64:
+		return int(v)
+	}
+	return 0
+}
+
+func eventPID(payload map[string]any) int {
+	if pid := optionalPID(payload, "pid"); pid > 0 {
+		return pid
+	}
+	return optionalPID(payload, "host_pid")
 }
 
 func failurePhase(s *session) string {
@@ -378,6 +423,15 @@ func (e *ReadyFailure) Error() string {
 			e.Phase, yesNo(e.LoginOK), yesNo(e.HostConnected), yesNo(e.AppStartSeen), yesNo(e.SetupSeen)))
 		if e.LastLoginCode != 0 {
 			parts = append(parts, fmt.Sprintf("登录码=%d", e.LastLoginCode))
+		}
+		if e.HostPID != 0 {
+			parts = append(parts, fmt.Sprintf("host_pid=%d", e.HostPID))
+		}
+		if e.WorkerPID != 0 {
+			parts = append(parts, fmt.Sprintf("worker_pid=%d", e.WorkerPID))
+		}
+		if len(e.LastEvents) > 0 {
+			parts = append(parts, "最后事件="+strings.Join(e.LastEvents, "→"))
 		}
 		if e.PreloadSlot != "" {
 			parts = append(parts, "preload="+e.PreloadSlot)
@@ -467,6 +521,8 @@ func (m *Manager) failReady(s *session, reason string, detail ...string) {
 		LoginOK: s.loginOK, HostConnected: s.hostConnected,
 		AppStartSeen: s.appStartSeen, SetupSeen: s.setupSeen || s.cdpOK,
 		LastLoginCode: s.lastLoginCode,
+		WorkerPID:     s.workerPID, HostPID: s.hostPID,
+		LastEvents: append([]string(nil), s.recentEvents...),
 	}
 	s.readyFailOnce.Do(func() { close(s.readyFailed) })
 	m.notifyReadyLocked(s)
@@ -640,9 +696,16 @@ func (m *Manager) event(s *session, event string, payload map[string]any) {
 	if terminal(s) {
 		return
 	}
+	noteEventLocked(s, event, payload)
 	switch event {
 	case "worker.started":
 		s.started = true
+		if pid := eventPID(payload); pid > 0 {
+			s.hostPID = pid
+		}
+		if pid := optionalPID(payload, "worker_pid"); pid > 0 {
+			s.workerPID = pid
+		}
 		if s.state != "stopping" {
 			s.state = "running"
 		}
@@ -689,20 +752,21 @@ func (m *Manager) event(s *session, event string, payload map[string]any) {
 		s.cdpOK = false
 		m.notifyReadyLocked(s)
 	case "process.seen":
-		var pid int
-		switch v := payload["pid"].(type) {
-		case float64:
-			pid = int(v)
-		case int:
-			pid = v
-		}
+		pid := eventPID(payload)
 		if pid > 0 {
+			if s.hostPID == 0 {
+				s.hostPID = pid
+			}
+			seen := false
 			for _, existing := range s.pids {
 				if existing == pid {
-					return
+					seen = true
+					break
 				}
 			}
-			s.pids = append(s.pids, pid)
+			if !seen {
+				s.pids = append(s.pids, pid)
+			}
 		}
 	case "cleanup.verified":
 		s.cleanup = true

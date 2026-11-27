@@ -148,6 +148,31 @@ func TestRepeatedResetErrorIncludesDiagnostics(t *testing.T) {
 	}
 }
 
+func TestRepeatedResetErrorIncludesProcessAndEventTail(t *testing.T) {
+	m, s := waitReadySession("wx1644df8e4fe6f725")
+	m.event(s, "worker.started", map[string]any{"pid": float64(4321)})
+	m.event(s, "script", map[string]any{"event": "installed.host"})
+	for i := 0; i < 3; i++ {
+		m.event(s, "script", map[string]any{"event": "host.Reset"})
+	}
+	_, err := m.WaitReady(context.Background(), s.id)
+	var failure *ReadyFailure
+	if !errors.As(err, &failure) {
+		t.Fatalf("expected ReadyFailure, got %v", err)
+	}
+	if failure.HostPID != 4321 || failure.Phase != "worker_started" {
+		t.Fatalf("bad pid/phase diagnostics: %#v", failure)
+	}
+	if len(failure.LastEvents) != 5 || failure.LastEvents[0] != "worker.started" ||
+		failure.LastEvents[len(failure.LastEvents)-1] != "script:host.Reset" {
+		t.Fatalf("bad event tail: %#v", failure.LastEvents)
+	}
+	if !strings.Contains(err.Error(), "host_pid=4321") ||
+		!strings.Contains(err.Error(), "最后事件=worker.started→script:installed.host→script:host.Reset→script:host.Reset→script:host.Reset") {
+		t.Fatalf("unhelpful error: %v", err)
+	}
+}
+
 func TestWaitReadyFailsOnHostTimeout(t *testing.T) {
 	m, s := waitReadySession("wx1644df8e4fe6f725")
 	m.event(s, "script", map[string]any{"event": "host.EnsureConnected.timeout"})
