@@ -93,3 +93,22 @@ dist/trim/wmpf-gui.exe sha256 = 5305661747A788D6A64D5ED23A2BC6FC0ED49EA27326F2C5
 The native save dialog path was not clicked automatically in this headless
 verification; the button handler, Wails binding and ZIP writer were verified
 separately by compile-time binding, embedded-asset checks and the archive test.
+
+## 1.0.5 asset overwrite with redacted build
+
+The existing `1.0.5` release was overwritten; no new version or tag was created.
+
+```text
+release          = 1.0.5
+asset            = WMPFWorkbench-go-1.0.5-win-x64.zip
+old asset id     = 798958000
+new asset id     = 799181310
+asset bytes      = 67161455
+local sha256     = 5D5B7305F1DC71CC1D1BCA009B30579E5F15995797C4C208A8A38C5103F49033
+remote sha256    = 5D5B7305F1DC71CC1D1BCA009B30579E5F15995797C4C208A8A38C5103F49033
+match            = true
+```
+
+The release body now mentions the diagnostics export and redaction. Because the
+asset was deleted and re-uploaded, its download count was reset; the version
+name, tag and asset filename remain unchanged.
