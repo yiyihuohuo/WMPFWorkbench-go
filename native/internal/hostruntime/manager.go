@@ -407,6 +407,17 @@ func failurePhase(s *session) string {
 	}
 }
 
+func resetAdvice(phase string) string {
+	switch phase {
+	case "host_bootstrap", "worker_started":
+		return "请完全退出工作台与宿主进程，校验发行包完整性，必要时备份并重置运行数据；此时尚未进入登录与应用启动，请勿通过切换目标排查"
+	case "host_connected":
+		return "宿主通道已建立但未完成登录；请重新扫码登录或检查账号授权状态后重试"
+	default:
+		return "必要时重新扫码登录或更换目标重试"
+	}
+}
+
 func (e *ReadyFailure) Error() string {
 	if e == nil {
 		return "未知启动失败"
@@ -436,7 +447,7 @@ func (e *ReadyFailure) Error() string {
 		if e.PreloadSlot != "" {
 			parts = append(parts, "preload="+e.PreloadSlot)
 		}
-		parts = append(parts, "请查看会话 observation/events.jsonl；必要时重新扫码登录或更换目标重试")
+		parts = append(parts, "请查看会话 observation/events.jsonl；"+resetAdvice(e.Phase))
 		return strings.Join(parts, "；")
 	}
 	parts := []string{e.Reason}

@@ -173,6 +173,29 @@ func TestRepeatedResetErrorIncludesProcessAndEventTail(t *testing.T) {
 	}
 }
 
+func TestRepeatedResetAdviceMatchesPhase(t *testing.T) {
+	early, es := waitReadySession("wx1644df8e4fe6f725")
+	early.event(es, "worker.started", map[string]any{"pid": float64(4321)})
+	for i := 0; i < 3; i++ {
+		early.event(es, "script", map[string]any{"event": "host.Reset"})
+	}
+	_, earlyErr := early.WaitReady(context.Background(), es.id)
+	if earlyErr == nil || !strings.Contains(earlyErr.Error(), "校验发行包完整性") ||
+		strings.Contains(earlyErr.Error(), "更换目标") {
+		t.Fatalf("early reset advice should target environment, got %v", earlyErr)
+	}
+
+	late, ls := waitReadySession("wx1644df8e4fe6f725")
+	loginOK(ls)
+	for i := 0; i < 5; i++ {
+		late.event(ls, "script", map[string]any{"event": "host.Reset"})
+	}
+	_, lateErr := late.WaitReady(context.Background(), ls.id)
+	if lateErr == nil || !strings.Contains(lateErr.Error(), "更换目标") {
+		t.Fatalf("post-login reset advice should allow target change, got %v", lateErr)
+	}
+}
+
 func TestWaitReadyFailsOnHostTimeout(t *testing.T) {
 	m, s := waitReadySession("wx1644df8e4fe6f725")
 	m.event(s, "script", map[string]any{"event": "host.EnsureConnected.timeout"})
