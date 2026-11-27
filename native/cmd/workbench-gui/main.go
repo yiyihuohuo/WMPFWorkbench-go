@@ -13,11 +13,13 @@ import (
 	"flag"
 	"fmt"
 	"net"
+	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -57,6 +59,8 @@ type Backend struct {
 
 	devtoolsFrontend *exec.Cmd
 	devtoolsPort     string
+	devtoolsProfile  string
+	devtoolsLog      string
 }
 
 func (b *Backend) Startup(ctx context.Context) {
@@ -782,54 +786,110 @@ func cdpEndpointFromTarget(target string) string {
 	return ""
 }
 
-// devtoolsFrontendURL starts a short-lived headless Chromium with remote
-// debugging enabled and returns its bundled DevTools frontend URL. Chromium
-// blocks command-line navigation to devtools://, but serves the same frontend
-// at http://127.0.0.1:<port>/devtools/inspector.html.
+func readDevtoolsPort(path string) (string, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	lines := strings.Split(strings.TrimSpace(string(raw)), "\n")
+	if len(lines) == 0 || strings.TrimSpace(lines[0]) == "" {
+		return "", fmt.Errorf("DevToolsActivePort 为空")
+	}
+	return strings.TrimSpace(lines[0]), nil
+}
+
+func verifyDevtoolsFrontend(port string) error {
+	client := &http.Client{Timeout: 2 * time.Second}
+	resp, err := client.Get("http://127.0.0.1:" + port + "/json/version")
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("DevTools 前端返回 HTTP %d", resp.StatusCode)
+	}
+	return nil
+}
+
+func (b *Backend) stopDevtoolsFrontendLocked() {
+	if b.devtoolsFrontend != nil && b.devtoolsFrontend.Process != nil && b.devtoolsFrontend.ProcessState == nil {
+		pid := strconv.Itoa(b.devtoolsFrontend.Process.Pid)
+		_ = exec.Command("taskkill", "/PID", pid, "/T", "/F").Run()
+	}
+	if b.devtoolsProfile != "" {
+		_ = os.RemoveAll(b.devtoolsProfile)
+	}
+	b.devtoolsFrontend, b.devtoolsPort, b.devtoolsProfile, b.devtoolsLog = nil, "", "", ""
+}
+
+// devtoolsFrontendURL starts a short-lived headless Chromium with an isolated
+// profile and returns its bundled DevTools frontend URL. Only the exact process
+// started here is ever stopped; Chrome/Edge is never killed by process name.
 func (b *Backend) devtoolsFrontendURL(endpoint string) (string, error) {
 	queryEndpoint := cdpEndpointForQuery(endpoint)
-	b.mu.Lock()
-	cmd, port := b.devtoolsFrontend, b.devtoolsPort
-	b.mu.Unlock()
-	if cmd != nil && cmd.ProcessState == nil && port != "" {
-		return "http://127.0.0.1:" + port + "/devtools/inspector.html?ws=" + queryEndpoint, nil
+	frontendURL := func(port string) string {
+		return "http://127.0.0.1:" + port + "/devtools/inspector.html?ws=" + queryEndpoint
 	}
+	b.mu.Lock()
+	cmd, port, profile := b.devtoolsFrontend, b.devtoolsPort, b.devtoolsProfile
+	b.mu.Unlock()
+	if cmd != nil && cmd.ProcessState == nil && port != "" && profile != "" && verifyDevtoolsFrontend(port) == nil {
+		return frontendURL(port), nil
+	}
+
+	b.mu.Lock()
+	b.stopDevtoolsFrontendLocked()
+	b.mu.Unlock()
+
 	browser := findDevtoolsBrowser()
 	if browser == "" {
 		return "", fmt.Errorf("未找到 Chrome 或 Edge，无法启动 DevTools 前端")
 	}
-	profile := filepath.Join(b.svc.Paths.Data, "desktop", "devtools-frontend-profile")
-	if err := os.MkdirAll(profile, 0700); err != nil {
+	profile, err := os.MkdirTemp("", "wmpf-devtools-frontend-*")
+	if err != nil {
+		return "", err
+	}
+	logPath := profile + ".log"
+	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+	if err != nil {
+		_ = os.RemoveAll(profile)
 		return "", err
 	}
 	portFile := filepath.Join(profile, "DevToolsActivePort")
-	_ = os.Remove(portFile)
 	cmd = exec.Command(browser, "--headless=new", "--disable-gpu", "--no-first-run",
 		"--no-default-browser-check", "--user-data-dir="+profile,
 		"--remote-debugging-port=0", "--remote-allow-origins=*", "about:blank")
+	cmd.Stdout, cmd.Stderr = logFile, logFile
 	if err := cmd.Start(); err != nil {
+		_ = logFile.Close()
+		_ = os.RemoveAll(profile)
 		return "", err
 	}
-	go func() { _ = cmd.Wait() }()
-	deadline := time.Now().Add(8 * time.Second)
+	go func() { _ = cmd.Wait(); _ = logFile.Close() }()
+
+	deadline := time.Now().Add(20 * time.Second)
+	ready := false
 	for time.Now().Before(deadline) {
-		raw, err := os.ReadFile(portFile)
-		if err == nil {
-			lines := strings.Split(strings.TrimSpace(string(raw)), "\n")
-			if len(lines) > 0 && strings.TrimSpace(lines[0]) != "" {
-				port = strings.TrimSpace(lines[0])
-				break
-			}
+		if cmd.ProcessState != nil {
+			break
+		}
+		port, err = readDevtoolsPort(portFile)
+		if err == nil && port != "" && verifyDevtoolsFrontend(port) == nil {
+			ready = true
+			break
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	if port == "" {
-		return "", fmt.Errorf("DevTools 前端服务启动超时")
+	if !ready {
+		b.mu.Lock()
+		b.stopDevtoolsFrontendLocked()
+		b.mu.Unlock()
+		return "", fmt.Errorf("DevTools 前端服务启动失败，日志：%s", logPath)
 	}
 	b.mu.Lock()
-	b.devtoolsFrontend, b.devtoolsPort = cmd, port
+	b.devtoolsFrontend, b.devtoolsPort, b.devtoolsProfile, b.devtoolsLog = cmd, port, profile, logPath
 	b.mu.Unlock()
-	return "http://127.0.0.1:" + port + "/devtools/inspector.html?ws=" + queryEndpoint, nil
+	return frontendURL(port), nil
 }
 
 // OpenDebugger always uses the system default browser. A headless Chromium may
@@ -844,7 +904,7 @@ func (b *Backend) OpenDebugger(target string) error {
 	}
 	frontend, err := b.devtoolsFrontendURL(endpoint)
 	if err != nil {
-		b.logf("DevTools 前端服务未启动：%v；已改为打开 CDP 目标列表。请安装 Chrome 或 Edge 后重试。", err)
+		b.logf("DevTools 前端服务未启动：%v；已改为打开 CDP 目标列表。可查看错误中的前端日志定位原因。", err)
 		runtime.BrowserOpenURL(b.ctx, "http://"+endpoint+"/json/list")
 		return nil
 	}
