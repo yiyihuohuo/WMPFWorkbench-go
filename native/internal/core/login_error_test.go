@@ -29,3 +29,10 @@ func TestClassifyLoginErrorSidecarUnavailable(t *testing.T) {
 		t.Fatalf("diag=%+v", diag)
 	}
 }
+
+func TestClassifyLoginErrorOldSidecar(t *testing.T) {
+	diag := ClassifyLoginError(errors.New("检测到旧版 wxapkg-dump 正在占用端口 8788（PID 1234）；该版本不支持账号保活接口"))
+	if diag.Code != "sidecar_outdated" || diag.ReloginRequired {
+		t.Fatalf("diag=%+v", diag)
+	}
+}

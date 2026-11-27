@@ -34,6 +34,12 @@ func ClassifyLoginError(err error) LoginDiagnostic {
 			ReloginRequired: true,
 			Detail:          text,
 		}
+	case strings.Contains(text, "旧版 wxapkg-dump") || strings.Contains(text, "不支持账号保活"):
+		return LoginDiagnostic{
+			Code:    "sidecar_outdated",
+			Message: "检测到旧版授权服务，工作台正在尝试替换；若仍失败请更新到最新 1.0.5 并重启。",
+			Detail:  text,
+		}
 	case strings.Contains(lower, "session unknown") || strings.Contains(lower, "login session"):
 		return LoginDiagnostic{
 			Code:    "qr_session_expired",

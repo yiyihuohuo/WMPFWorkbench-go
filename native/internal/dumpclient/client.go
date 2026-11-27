@@ -55,6 +55,7 @@ type Options struct {
 	RemoteHome string // WXAPKG_REMOTE_HOME passed to the sidecar child process
 	AdminKey   string // optional x-admin-key
 	AutoStart  bool   // start the sidecar if not reachable
+	ManagedDir string // only a wxapkg-dump.exe under this directory may be replaced
 	Logf       func(string, ...any)
 }
 
@@ -248,16 +249,53 @@ func (c *Client) Reachable(ctx context.Context) bool {
 }
 
 // Ensure starts the sidecar process when AutoStart is set and it is not up.
+// If the configured port is occupied by an old wxapkg-dump without the
+// keepalive route, the old process is replaced only when it can be proven to
+// be a managed wxapkg-dump.exe under ManagedDir.
 func (c *Client) Ensure(ctx context.Context) error {
 	if c.Reachable(ctx) {
 		if _, err := c.Status(ctx); err != nil {
 			return fmt.Errorf("端口 %s 已被不兼容服务占用：%w", net.JoinHostPort(c.baseHost(), strconv.Itoa(c.port())), err)
 		}
-		return nil
+		if c.supportsKeepAlive(ctx) {
+			return nil
+		}
+		if !c.opts.AutoStart {
+			return c.incompatibleSidecarError()
+		}
+		if err := c.ensureExe(); err != nil {
+			return err
+		}
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		if c.Reachable(ctx) && c.supportsKeepAlive(ctx) {
+			return nil
+		}
+		if err := c.replaceIncompatibleSidecar(ctx); err != nil {
+			return err
+		}
+		return c.startLocked(ctx)
 	}
 	if !c.opts.AutoStart {
 		return errors.New("wxapkg-dump server 未运行")
 	}
+	if err := c.ensureExe(); err != nil {
+		return err
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.Reachable(ctx) {
+		if c.supportsKeepAlive(ctx) {
+			return nil
+		}
+		if err := c.replaceIncompatibleSidecar(ctx); err != nil {
+			return err
+		}
+	}
+	return c.startLocked(ctx)
+}
+
+func (c *Client) ensureExe() error {
 	// Re-resolve once in case the bundle extracted the helper after New().
 	if _, err := os.Stat(c.opts.ExePath); err != nil {
 		if resolved, searched := resolveExe(); resolved != c.opts.ExePath {
@@ -271,11 +309,10 @@ func (c *Client) Ensure(ctx context.Context) error {
 		}
 		return fmt.Errorf("未找到 %s（当前路径：%s）；%s", exeName, c.opts.ExePath, hint)
 	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.Reachable(ctx) {
-		return nil
-	}
+	return nil
+}
+
+func (c *Client) startLocked(ctx context.Context) error {
 	args := []string{"serve", "--bind", net.JoinHostPort(c.baseHost(), strconv.Itoa(c.port()))}
 	if c.opts.Workspace != "" {
 		args = append(args, "--workspace", c.opts.Workspace)
