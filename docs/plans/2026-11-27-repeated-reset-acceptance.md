@@ -112,3 +112,47 @@ match            = true
 The release body now mentions the diagnostics export and redaction. Because the
 asset was deleted and re-uploaded, its download count was reset; the version
 name, tag and asset filename remain unchanged.
+
+## Failed session export path fix
+
+The first exported build still reported `未找到失败会话` after a real launch
+failure. The exporter looked for `<session>/failure.json`, while hostruntime
+writes `<session>/observation/failure.json` (`manager.go:1275`, `manager.go:1290`).
+The unit fixtures had used the same wrong path, so they did not catch the drift.
+
+`diagnosticFailurePath` now prefers `observation/failure.json` and falls back to
+the session-root file for older artifacts. Both discovery and packaging use it.
+Tests were updated to the real path and a legacy-path case was added.
+
+## Runtime 5.10.7300.414 hash mismatch diagnosis
+
+The reported mismatch is not a code regression. The expected hash in
+`validate.go`:
+
+```text
+a66d9388ff0b6fbd79045551e9d5b22dadc460ebd1b5659733361921617e22f6
+```
+
+is the Git LFS object ID of the real `runtime/flue.dll`. The user-provided actual
+hash:
+
+```text
+4925257155dab73da434d5108f4988534049b15a3c9192631fff40c5896b2810
+```
+
+is the SHA-256 of the 134-byte Git LFS pointer text served by
+`raw.githubusercontent.com`. The pointer says:
+
+```text
+version https://git-lfs.github.com/spec/v1
+oid sha256:a66d9388ff0b6fbd79045551e9d5b22dadc460ebd1b5659733361921617e22f6
+size 210967088
+```
+
+`.gitattributes` marks `runtime/flue.dll` as LFS. Downloading the repository as
+a ZIP or fetching raw files therefore yields pointer text instead of the DLL.
+Fetching the LFS object through `media.githubusercontent.com` produced a
+210,967,088-byte file with SHA-256 `a66d...`, exactly the expected value.
+Correct acquisition is `git lfs install` followed by clone/pull, or using the
+LFS-resolved media URL; copying pointer text into `runtime/` will always fail
+preflight.
