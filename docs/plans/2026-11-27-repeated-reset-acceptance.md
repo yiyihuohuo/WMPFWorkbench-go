@@ -66,11 +66,16 @@ message identifies the launch phase and state instead of only a count.
   and `wmpf-devtools-frontend-*.log`, the GUI log tail, `README.txt` and a
   `manifest.json` with sizes and SHA256 hashes.
 - Agent logs are capped at 4 MiB tail each and the archive at 64 MiB.
+- All exported text is redacted before hashing/writing: `uin`, `openid`, token
+  and cookie-shaped values are removed, and local paths are replaced with
+  `<APP_ROOT>`, `<TEMP>` and `<USER>`. Event names, error codes and timestamps
+  are preserved because they carry the root-cause evidence without identifying
+  the operator.
 
 ## Diagnostics export verification
 
 ```text
-go test ./cmd/workbench-gui -run 'TestFindLatestFailedSession|TestCollectAndWriteDiagnosticZip|TestReadDiagnosticFileTakesTail' -v
+go test ./cmd/workbench-gui -run 'TestFindLatestFailedSession|TestCollectAndWriteDiagnosticZip|TestRedactDiagnosticText|TestReadDiagnosticFileTakesTail' -v
 PASS
 go test ./...                         PASS
 build-release                         PASS
@@ -82,7 +87,7 @@ and manifest. The built GUI binary contains the new button label, the
 `ExportDiagnostics` Wails binding and the archive README text.
 
 ```text
-dist/trim/wmpf-gui.exe sha256 = 2CD92D0B6EE216AB7C2664C162F88D2F2F249DE0389D9E854C46F08364C79469
+dist/trim/wmpf-gui.exe sha256 = 5305661747A788D6A64D5ED23A2BC6FC0ED49EA27326F2C577CFE50BC06D6310
 ```
 
 The native save dialog path was not clicked automatically in this headless
