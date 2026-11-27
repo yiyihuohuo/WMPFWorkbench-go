@@ -156,3 +156,23 @@ Fetching the LFS object through `media.githubusercontent.com` produced a
 Correct acquisition is `git lfs install` followed by clone/pull, or using the
 LFS-resolved media URL; copying pointer text into `runtime/` will always fail
 preflight.
+
+## 1.0.5 asset overwrite with export path fix
+
+The `1.0.5` asset was overwritten again with the export path fix; the version
+name, tag and asset filename remain unchanged.
+
+```text
+old asset id  = 799181310
+new asset id  = 799899619
+asset bytes   = 67161383
+sha256        = 052830E22DA17277A659576C7B033A6D9D22C269BF1EA563CE6727F04E153D65
+remote match  = true
+```
+
+Source was pushed to both branches:
+
+```text
+main                          = 8920f42616dd0c8c368f70f181977349db6835a0
+stable/two-hop-release-public = 8920f42616dd0c8c368f70f181977349db6835a0
+```
