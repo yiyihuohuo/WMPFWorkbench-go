@@ -51,3 +51,40 @@ release rebuild and a clean launch, it reached `debug_ready`; the likely
 contributors were a stale native session/environment and the previous
 fail-fast reset rule. The new diagnostics ensure that if it recurs, the failure
 message identifies the launch phase and state instead of only a count.
+
+## Diagnostics export
+
+- `ReadyFailure` additionally reports `host_pid`, optional `worker_pid`, and the
+  last five payload-free event labels.
+- `repeated_reset` advice is phase-aware: `host_bootstrap` / `worker_started`
+  direct the user to exit processes, verify package integrity and reset runtime
+  data; `host_connected` directs the user to re-login; later phases may suggest
+  changing the target.
+- The About page has a themed “导出诊断日志（ZIP）” button. The backend picks the
+  most recent failed session and packages `events.jsonl`, `worker.json`,
+  `failure.json`, optional metadata/bridge logs, matching `wmpf-agent-*.log`
+  and `wmpf-devtools-frontend-*.log`, the GUI log tail, `README.txt` and a
+  `manifest.json` with sizes and SHA256 hashes.
+- Agent logs are capped at 4 MiB tail each and the archive at 64 MiB.
+
+## Diagnostics export verification
+
+```text
+go test ./cmd/workbench-gui -run 'TestFindLatestFailedSession|TestCollectAndWriteDiagnosticZip|TestReadDiagnosticFileTakesTail' -v
+PASS
+go test ./...                         PASS
+build-release                         PASS
+```
+
+The generated test archive was opened with `archive/zip`; it contained the
+expected event stream, worker config, failure record, agent log, UI log, README
+and manifest. The built GUI binary contains the new button label, the
+`ExportDiagnostics` Wails binding and the archive README text.
+
+```text
+dist/trim/wmpf-gui.exe sha256 = 2CD92D0B6EE216AB7C2664C162F88D2F2F249DE0389D9E854C46F08364C79469
+```
+
+The native save dialog path was not clicked automatically in this headless
+verification; the button handler, Wails binding and ZIP writer were verified
+separately by compile-time binding, embedded-asset checks and the archive test.
