@@ -267,3 +267,17 @@ Changes:
 Tests cover versioned extraction without overwriting a legacy file, cleanup,
 OPTIONS tri-state probing, netstat/process path lookup, path boundary checks,
 same-path protection, and refusal to kill an outside process.
+
+## Final 1.0.5 asset for export and sidecar fixes
+
+```text
+old asset id = 800892305
+new asset id = 800990158
+asset bytes  = 67177948
+sha256       = 1b6a3bd2ea0a3a158553a17202ab2747d2aa319ed346d6c47cbd5c80bfbcf7d9
+GitHub digest = sha256:1b6a3bd2ea0a3a158553a17202ab2747d2aa319ed346d6c47cbd5c80bfbcf7d9
+source HEAD  = 3698d9b
+```
+
+GitHub's asset digest matches the locally built ZIP; both source branches were
+fast-forwarded to `3698d9b`.
