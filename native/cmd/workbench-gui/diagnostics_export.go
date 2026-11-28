@@ -122,11 +122,19 @@ func findLatestFailedSession(root string) (string, map[string]any, error) {
 		if statErr != nil || !st.Mode().IsRegular() {
 			continue
 		}
-		if bestDir != "" && !st.ModTime().After(bestTime) {
-			continue
-		}
 		failure, readErr := readJSONMap(path)
 		if readErr != nil {
+			continue
+		}
+		// failed_at is authoritative: file mtime can be changed by copies,
+		// antivirus scans or manual inspection and must not pick an older
+		// session over the real latest failure.
+		failedAt := diagnosticFailureTime(failure)
+		rank := failedAt
+		if rank.IsZero() {
+			rank = st.ModTime()
+		}
+		if bestDir != "" && !rank.After(bestRank(bestFailure, bestTime)) {
 			continue
 		}
 		bestDir = filepath.Join(base, d.Name())
@@ -168,11 +176,25 @@ func diagnosticFailurePath(dir string) string {
 	return filepath.Join(dir, "failure.json")
 }
 
-func diagnosticFailedAt(failure map[string]any, dir string) time.Time {
+func diagnosticFailureTime(failure map[string]any) time.Time {
 	if text := diagnosticString(failure, "failed_at"); text != "" {
 		if t, err := time.Parse(time.RFC3339, text); err == nil {
 			return t
 		}
+	}
+	return time.Time{}
+}
+
+func bestRank(failure map[string]any, mod time.Time) time.Time {
+	if t := diagnosticFailureTime(failure); !t.IsZero() {
+		return t
+	}
+	return mod
+}
+
+func diagnosticFailedAt(failure map[string]any, dir string) time.Time {
+	if t := diagnosticFailureTime(failure); !t.IsZero() {
+		return t
 	}
 	if st, err := os.Stat(diagnosticFailurePath(dir)); err == nil {
 		return st.ModTime()

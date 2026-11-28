@@ -28,14 +28,15 @@ func TestFindLatestFailedSession(t *testing.T) {
 	newer := filepath.Join(base, "bbbbbbbbbbbbbbbb")
 	olderFailure := filepath.Join(older, "observation", "failure.json")
 	newerFailure := filepath.Join(newer, "observation", "failure.json")
-	writeTestFile(t, olderFailure, `{"session_id":"aaaaaaaaaaaaaaaa","appid":"wxold","state":"error"}`)
-	writeTestFile(t, newerFailure, `{"session_id":"bbbbbbbbbbbbbbbb","appid":"wxnew","state":"error"}`)
+	writeTestFile(t, olderFailure, `{"session_id":"aaaaaaaaaaaaaaaa","appid":"wxold","state":"error","failed_at":"2026-11-23T13:25:38+08:00"}`)
+	writeTestFile(t, newerFailure, `{"session_id":"bbbbbbbbbbbbbbbb","appid":"wxnew","state":"error","failed_at":"2026-11-28T12:52:12+08:00"}`)
+	// Deliberately invert mtimes: failed_at must win over file timestamps.
 	oldTime := time.Now().Add(-2 * time.Hour)
 	newTime := time.Now().Add(-time.Hour)
-	if err := os.Chtimes(olderFailure, oldTime, oldTime); err != nil {
+	if err := os.Chtimes(olderFailure, newTime, newTime); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Chtimes(newerFailure, newTime, newTime); err != nil {
+	if err := os.Chtimes(newerFailure, oldTime, oldTime); err != nil {
 		t.Fatal(err)
 	}
 
