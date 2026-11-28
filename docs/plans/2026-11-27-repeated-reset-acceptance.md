@@ -354,3 +354,31 @@ sha256   = 21d5dc93b414400bd1b9f50b80713012f44caee0458ec9a25ee2c01d2dbd7432
 digest   = sha256:21d5dc93b414400bd1b9f50b80713012f44caee0458ec9a25ee2c01d2dbd7432
 source   = 5e62be1
 ```
+
+## Real MCP HTTP end-to-end test
+
+The built `dist/trim/wmpf-gui.exe` was actually started as a standalone MCP
+HTTP server on `127.0.0.1:18767` with an isolated config file:
+
+```text
+wmpf-gui.exe -mcp http -mcp-port 18767 -config <temp-config> -root dist/trim
+```
+
+Endpoints and calls:
+
+```text
+GET  /console/health        -> HTTP 200 {"ok":true,"service":"wmpf-console","tools":40}
+POST /mcp initialize        -> HTTP 200, protocol 2025-06-18, session established
+POST /mcp notifications/initialized -> HTTP 202
+POST /mcp tools/list        -> HTTP 200, 40 tools
+POST /mcp tools/call login_status      -> HTTP 200, no isError
+POST /mcp tools/call index action=stats -> HTTP 200, no isError
+POST /mcp tools/call runtime_status    -> HTTP 200, no isError
+POST /mcp tools/call get_app_detail wx4a4c2f53af93d4d3 -> HTTP 200, no isError
+POST /console/shutdown      -> HTTP 200, port closed after exit
+```
+
+`get_app_detail` for `wx4a4c2f53af93d4d3` reported `listed=true`,
+`launch_mode_hint=direct`, `package_source=local_index`. No raw account
+identifiers or credentials are reproduced here.
+
