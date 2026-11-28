@@ -281,3 +281,22 @@ source HEAD  = 3698d9b
 
 GitHub's asset digest matches the locally built ZIP; both source branches were
 fast-forwarded to `3698d9b`.
+
+## Exported session selection bug
+
+The user-provided `wmpf-diagnostics-d10b62ba682b595d.zip` contained a failure
+from `2026-11-23T13:25:38+08:00` for `wx01c9bc28d8206fa6`, while the UI log in
+the same archive showed a fresh `2026-11-28 12:52` failure for
+`wx4a4c2f53af93d4d3` with `host_pid=12304` and the same
+`ReLaunch -> InitCore -> ReBind -> LaunchAndBind -> Reset` chain.
+
+`findLatestFailedSession` was ranking sessions by `failure.json` mtime. A stale
+session with a newer file timestamp won over the real latest failure. The
+selection now ranks by `failed_at` parsed from `failure.json`, using file mtime
+only for old artifacts without a parseable timestamp. The test intentionally
+inverts mtimes to prove `failed_at` wins.
+
+The stale ZIP contains only `failure.json`, `ui-log.txt`, `manifest.json`,
+`README.txt` and `missing.txt`; the missing event/worker files are now listed
+rather than aborting export. It is not sufficient to analyze the fresh
+`host.Reset`, so the user needs to export again with the rebuilt package.
