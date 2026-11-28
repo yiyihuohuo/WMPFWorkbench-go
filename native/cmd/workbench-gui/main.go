@@ -33,6 +33,7 @@ import (
 	"wmpfworkbench/internal/bundle"
 	"wmpfworkbench/internal/config"
 	"wmpfworkbench/internal/core"
+	"wmpfworkbench/internal/dumpclient"
 	"wmpfworkbench/internal/hostruntime"
 )
 
@@ -44,19 +45,24 @@ var iconData []byte
 
 const appVersion = "1.0.5"
 
+// Repeated log lines are suppressed for this window after their timestamp is
+// removed; the 5s UI poller otherwise turns one failure into hundreds of rows.
+const logSignatureWindow = 30 * time.Second
+
 type Backend struct {
-	ctx         context.Context
-	svc         *core.Service
-	cfgPath     string
-	mu          sync.Mutex
-	logs        []string
-	mcpError    string
-	mcpCancel   context.CancelFunc
-	mcpDone     chan struct{}
-	skipMCP     bool // tests set this to avoid launching a real listener
-	qrLastState string
-	loginState  string // last account-state signature; avoids log spam every 5s
-	bundleError string
+	ctx           context.Context
+	svc           *core.Service
+	cfgPath       string
+	mu            sync.Mutex
+	logs          []string
+	logSignatures map[string]time.Time
+	mcpError      string
+	mcpCancel     context.CancelFunc
+	mcpDone       chan struct{}
+	skipMCP       bool // tests set this to avoid launching a real listener
+	qrLastState   string
+	loginState    string // last account-state signature; avoids log spam every 5s
+	bundleError   string
 
 	devtoolsFrontend *exec.Cmd
 	devtoolsPort     string
@@ -170,8 +176,9 @@ func (b *Backend) stopMCP() {
 }
 
 var (
-	openidPattern = regexp.MustCompile(`ow[A-Za-z0-9_-]{10,}`)
-	bearerPattern = regexp.MustCompile(`(?i)bearer\s+[A-Za-z0-9._-]+`)
+	openidPattern      = regexp.MustCompile(`ow[A-Za-z0-9_-]{10,}`)
+	bearerPattern      = regexp.MustCompile(`(?i)bearer\s+[A-Za-z0-9._-]+`)
+	logTimestampPrefix = regexp.MustCompile(`^(?:\d{4}[-/]\d{2}[-/]\d{2}[ T])?\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?\s*`)
 )
 
 // maskLog keeps account identifiers and tokens out of the visible operation log.
@@ -180,10 +187,33 @@ func maskLog(text string) string {
 	return bearerPattern.ReplaceAllString(text, "Bearer ***")
 }
 
+// logSignature removes a leading timestamp from a log line so the same error
+// reported by different pollers still maps to one rate-limit key.
+func logSignature(message string) string {
+	return logTimestampPrefix.ReplaceAllString(strings.TrimSpace(message), "")
+}
+
 func (b *Backend) logf(format string, args ...any) {
+	message := maskLog(fmt.Sprintf(format, args...))
+	signature := logSignature(message)
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	b.logs = append(b.logs, time.Now().Format("15:04:05")+"   "+maskLog(fmt.Sprintf(format, args...)))
+	now := time.Now()
+	if b.logSignatures == nil {
+		b.logSignatures = map[string]time.Time{}
+	}
+	if last, ok := b.logSignatures[signature]; ok && now.Sub(last) < logSignatureWindow {
+		return
+	}
+	b.logSignatures[signature] = now
+	if len(b.logSignatures) > 400 {
+		for key, at := range b.logSignatures {
+			if now.Sub(at) > logSignatureWindow {
+				delete(b.logSignatures, key)
+			}
+		}
+	}
+	b.logs = append(b.logs, now.Format("15:04:05")+"   "+message)
 	if len(b.logs) > 400 {
 		b.logs = b.logs[len(b.logs)-400:]
 	}
@@ -516,17 +546,38 @@ func (b *Backend) DeleteAccount(openid string) (any, error) {
 	return map[string]any{"ok": true, "openid": openid}, nil
 }
 
-// Avatar returns the account's profile image URL from the authorization
-// sidecar. The frontend puts it directly in an <img src>.
+// Avatar returns the profile image URL of the account identified by ref, not
+// blindly the current account's avatar. The frontend puts it in an <img src>.
 func (b *Backend) Avatar(ref string) (string, error) {
-	if strings.TrimSpace(ref) == "" {
+	ref = strings.TrimSpace(ref)
+	if ref == "" || b.svc.Dump == nil {
 		return "", nil
 	}
+	match := func(accounts []dumpclient.AccountView) string {
+		for _, account := range accounts {
+			if account.OpenID == ref {
+				return account.Avatar
+			}
+		}
+		return ""
+	}
 	st, err := b.svc.Dump.Status(b.ctx)
-	if err != nil || st.Account == nil {
+	if err != nil {
 		return "", err
 	}
-	return st.Account.Avatar, nil
+	if src := match(st.Accounts); src != "" {
+		return src, nil
+	}
+	if st.Account != nil && st.Account.OpenID == ref {
+		return st.Account.Avatar, nil
+	}
+	// Status may only carry the current account; fall back to the full list so
+	// selecting another remembered account still shows that account's avatar.
+	accounts, err := b.svc.Dump.Accounts(b.ctx)
+	if err != nil || len(accounts) == 0 {
+		return "", err
+	}
+	return match(accounts), nil
 }
 
 func (b *Backend) QRCreate() (any, error) {
@@ -901,20 +952,28 @@ func (b *Backend) devtoolsFrontendURL(endpoint string) (string, error) {
 // be started only as a local static server for its bundled DevTools frontend;
 // it is never used as the user-visible browser. If that frontend server cannot
 // start, the default browser opens the CDP discovery page instead.
-func (b *Backend) OpenDebugger(target string) error {
+// OpenDebuggerResult keeps the original OpenDebugger binding intact while
+// telling the UI when DevTools fell back to the raw CDP target list.
+func (b *Backend) OpenDebuggerResult(target string) (map[string]any, error) {
 	endpoint := cdpEndpointFromTarget(target)
 	if endpoint == "" {
 		runtime.BrowserOpenURL(b.ctx, target)
-		return nil
+		return map[string]any{"ok": true, "fallback": false, "url": target}, nil
 	}
 	frontend, err := b.devtoolsFrontendURL(endpoint)
 	if err != nil {
+		fallbackURL := "http://" + endpoint + "/json/list"
 		b.logf("DevTools 前端服务未启动：%v；已改为打开 CDP 目标列表。可查看错误中的前端日志定位原因。", err)
-		runtime.BrowserOpenURL(b.ctx, "http://"+endpoint+"/json/list")
-		return nil
+		runtime.BrowserOpenURL(b.ctx, fallbackURL)
+		return map[string]any{"ok": true, "fallback": true, "url": fallbackURL, "reason": err.Error()}, nil
 	}
 	runtime.BrowserOpenURL(b.ctx, frontend)
-	return nil
+	return map[string]any{"ok": true, "fallback": false, "url": frontend}, nil
+}
+
+func (b *Backend) OpenDebugger(target string) error {
+	_, err := b.OpenDebuggerResult(target)
+	return err
 }
 
 // mcpConfig mirrors the original console's stdio/http client entries: stdio
@@ -982,7 +1041,10 @@ func (b *Backend) CopyMCPConfig(kind string) error {
 	if err := encoder.Encode(map[string]any{"mcpServers": map[string]any{"wmpf": entry}}); err != nil {
 		return err
 	}
-	runtime.ClipboardSetText(b.ctx, buffer.String())
+	if err := runtime.ClipboardSetText(b.ctx, buffer.String()); err != nil {
+		b.logErr("复制 MCP 配置", err, kind)
+		return err
+	}
 	b.logf("已复制 %s MCP 配置", kind)
 	return nil
 }
@@ -998,6 +1060,7 @@ func (b *Backend) Logs() []string {
 func (b *Backend) ClearLogs() []string {
 	b.mu.Lock()
 	b.logs = nil
+	b.logSignatures = map[string]time.Time{}
 	b.mu.Unlock()
 	return []string{}
 }

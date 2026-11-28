@@ -3,10 +3,12 @@
   const c = d.common;
   const esc = c.esc;
   let findings = [];
+  let scanError = '';
 
   function renderFindings() {
     const box = document.getElementById('dynScanFindings');
     if (!box) return;
+    if (scanError) { box.innerHTML = c.empty('扫描失败：' + esc(scanError)); return; }
     if (!findings.length) { box.innerHTML = c.empty('没有发现匹配项，或还没有运行扫描。'); return; }
     box.innerHTML = `<table class="dynamic-table"><thead><tr><th>等级</th><th>规则</th><th>文件</th><th>位置</th><th>代码上下文 / 原始匹配</th></tr></thead><tbody>${findings.map(f => `<tr><td class="dynamic-severity ${esc(f.severity)}">${esc(f.severity)}</td><td>${esc(f.rule)}</td><td title="${esc(f.file)}">${esc(f.file_display || f.file)}</td><td>${f.line}:${f.column || 1}</td><td><code class="dynamic-snippet">${esc(f.snippet || f.match)}</code><div class="dynamic-actions"><button data-copy-finding="${esc(f.match)}">复制原始内容</button></div></td></tr>`).join('')}</tbody></table>`;
     box.querySelectorAll('[data-copy-finding]').forEach(btn => btn.addEventListener('click', () => c.copy(btn.dataset.copyFinding)));
@@ -56,7 +58,13 @@
     html: `<div class="card"><h2>扫描当前小程序</h2><p class="muted small">默认扫描当前打开小程序已还原的源码；没有源码时会自动提交解密任务。</p><div class="dynamic-target-inline" id="dynScanTarget">当前目标：未启动</div><div class="dynamic-actions"><button data-act="scan-rules">规则列表</button><button data-act="scan-run">扫描当前小程序</button><button data-act="scan-report">打开报告</button></div><div class="dynamic-detail" id="dynScanOut">—</div></div><div class="card"><h2>扫描结果</h2><div class="dynamic-list" id="dynScanFindings"></div></div>`,
     init(root) {
       root.querySelector('[data-act="scan-rules"]').addEventListener('click', openRules);
-      root.querySelector('[data-act="scan-run"]').addEventListener('click', async e => { const r = await c.invoke('scan.run', {}, 'dynScanOut', e.currentTarget); findings = (r && r.findings) || []; renderFindings(); });
+      root.querySelector('[data-act="scan-run"]').addEventListener('click', async e => {
+        findings = []; scanError = ''; renderFindings();
+        const r = await c.invoke('scan.run', {}, 'dynScanOut', e.currentTarget);
+        if (!r) { scanError = '扫描请求失败，请查看上方输出。'; renderFindings(); return; }
+        if (r.ok === false) { scanError = String(r.message || r.reason || '扫描失败'); renderFindings(); return; }
+        findings = (r.findings) || []; renderFindings();
+      });
       root.querySelector('[data-act="scan-report"]').addEventListener('click', async () => { if (c.api() && c.api().OpenReport) { const r = await c.api().OpenReport(); c.out('dynScanOut', r || '已请求打开报告'); } });
     },
     async refresh() {

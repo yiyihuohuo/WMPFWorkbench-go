@@ -116,6 +116,10 @@ progress::-webkit-progress-value{background:var(--accent)}
 .sectionTitle{font-size:12px;font-weight:600;color:var(--text);margin:0 0 6px}
 .divider{height:1px;background:var(--divider);margin:8px 0}
 .statusbar{height:24px;flex:none;display:flex;align-items:center;padding:0 12px;background:var(--status-bg);border-top:1px solid var(--status-border);color:var(--text-muted);font-size:11px}
+.statusbar[data-kind="ok"]{color:var(--ok);background:var(--accent-soft)}
+.statusbar[data-kind="bad"]{color:var(--bad);background:rgba(220,38,38,.09)}
+.statusbar[data-kind="warn"]{color:var(--warn);background:rgba(217,119,6,.09)}
+.statusbar[data-kind="busy"],.statusbar[data-kind="loading"]{color:var(--busy);background:rgba(37,99,235,.09)}
 @media (max-width:760px){
   .sidebar{width:76px;padding:18px 8px}
   .brand{font-size:13px}.brandTag,.brandSub{display:none}
@@ -163,6 +167,10 @@ progress::-webkit-progress-value{background:var(--accent)}
           <div class="metric"><div class="k">MCP 服务</div><div class="v" id="mMcp">—</div></div>
           <div class="metric"><div class="k">已保存账号</div><div class="v" id="mAccounts">—</div></div>
           <div class="metric"><div class="k">已启用功能</div><div class="v" id="mTools">—</div></div>
+        </div>
+        <div class="card" id="bundleErrorCard" style="display:none;border-color:var(--bad)">
+          <h2 class="cardTitle" style="color:var(--bad)">内置组件释放失败</h2>
+          <div class="muted small" id="bundleErrorText"></div>
         </div>
         <div class="card">
           <h2 class="cardTitle">服务与端口</h2>
@@ -369,9 +377,23 @@ progress::-webkit-progress-value{background:var(--accent)}
 const api = window.go?.main?.Backend;
 window.__wmpfApi = api;
 const $ = (id) => document.getElementById(id);
-const state = { tools: [], accounts: [], sessions: [], selectedSession: '', qr: null, qrState: 'idle', qrGen: 0, toolFilter: '', toolGroup: '全部分组', avatarRef: '', lastSide: '', frontLogs: [] };
+const state = { tools: [], accounts: [], sessions: [], selectedSession: '', qr: null, qrState: 'idle', qrGen: 0, toolFilter: '', toolGroup: '全部分组', avatarRef: '', lastSide: '', frontLogs: [], dirty: { exportDir:false, mcpBind:false, hideWindow:false, globalSwitch:false } };
 const QR_STATUS = { pending: '等待微信扫描…', scanned: '已扫码，请在手机上确认…', authorized: '已扫码，请在手机上确认（确认后需换取凭证，可能需几十秒，请勿刷新）…', confirmed: '登录成功', expired: '二维码已过期，请刷新', cancelled: '已取消', unknown: '状态未知' };
+const EXPORT_TIMEOUT_MS = 15 * 60 * 1000;
+const EXPORT_MAX_POLLS = 900;
+const EXPORT_CALL_TIMEOUT_MS = 15000;
 let generation = 0;
+
+function isDirty(field, element) { return !!state.dirty[field] || (!!element && document.activeElement === element); }
+function markDirty(field) { state.dirty[field] = true; }
+function clearDirty(field) { state.dirty[field] = false; }
+function withTimeout(promise, ms, label) {
+  let timer;
+  return Promise.race([
+    Promise.resolve(promise),
+    new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(label)), ms); })
+  ]).finally(() => clearTimeout(timer));
+}
 
 function esc(v) { return String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 // Bottom bar always shows the real current operation with a timestamp, so it
@@ -499,7 +521,21 @@ function renderSessions(rows) {
     tr.addEventListener('click', () => { state.selectedSession = row.session_id; renderSessions(state.sessions); });
     tr.querySelectorAll('.debug-link').forEach(button => button.addEventListener('click', async event => {
       event.stopPropagation();
-      try { await api.OpenDebugger(button.dataset.url); } catch (error) { logAppend('打开调试器失败：' + error); }
+      try {
+        let result;
+        if (api.OpenDebuggerResult) {
+          result = await api.OpenDebuggerResult(button.dataset.url);
+        } else {
+          await api.OpenDebugger(button.dataset.url);
+          result = { fallback:false };
+        }
+        if (result && result.fallback) {
+          logAppend('DevTools 前端启动失败，已降级打开 CDP 目标列表：' + (result.reason || ''));
+          status('已降级打开 CDP 目标列表', 'warn');
+        } else {
+          status('已打开调试器', 'ok');
+        }
+      } catch (error) { logAppend('打开调试器失败：' + error); status('打开调试器失败：' + error, 'bad'); }
     }));
     body.appendChild(tr);
   });
@@ -570,7 +606,11 @@ function renderAccounts(login) {
       tr.innerHTML = `<td>${esc(label)}${badge}</td><td>${esc(account.status || 'unknown')}</td><td>${checked}</td>` +
         `<td><button data-act="delete" style="padding:2px 8px">删除</button></td>`;
       tr.querySelector('[data-act="delete"]').addEventListener('click', async () => {
-        try { await api.DeleteAccount(openid); logAppend('已删除账号：' + label); status('已删除账号', 'ok'); }
+        try {
+          const result = await api.DeleteAccount(openid);
+          if (result && result.ok === false) throw new Error(result.reason || result.error || '后端返回失败');
+          logAppend('已删除账号：' + label); status('已删除账号', 'ok');
+        }
         catch (e) { logAppend('删除失败：' + e); status('删除失败：' + e, 'bad'); }
         await refresh(true);
       });
@@ -629,7 +669,7 @@ function renderDumpStatus(st) {
   const dir = $('exportDirCurrent');
   if (!st || st.error) { dir.textContent = '导出服务未就绪' + (st && st.error ? '：' + st.error : ''); return; }
   dir.textContent = st.export_dir || '（未配置）';
-  $('exportDir').value = st.export_dir || '';
+  if (!isDirty('exportDir', $('exportDir'))) $('exportDir').value = st.export_dir || '';
   const online = st.online === true;
   $('exportHint').textContent = online ? '授权有效，可直接导出。' : '未登录：请到“扫码与账号”完成授权。';
 }
@@ -642,15 +682,15 @@ function renderResults(payload) {
   const body = $('resultBody');
   if (payload.error || payload.grade === 'blocked') {
     body.innerHTML = '<tr><td colspan="6" class="muted">' + esc(payload.error || '搜索被阻止：请先在“扫码与账号”登录并选择账号') + '</td></tr>';
-    return;
+    return 0;
   }
   const raw = payload.items || payload.list || [];
   // Official search cards may include software entries; only miniprograms and
   // minigames are launchable here (game_type 3 = mini program, 2 = mini game).
   const items = (Array.isArray(raw) ? raw : []).filter(item => item.kind === 'mini_program' || item.kind === 'mini_game' || item.game_type === 2 || item.game_type === 3);
   if (!items.length) {
-    body.innerHTML = '<tr><td colspan="6" class="muted">没有小程序/小游戏结果（软件类结果已过滤）</td></tr>';
-    return;
+    body.innerHTML = '<tr><td colspan="6" class="muted">没有小程序/小游戏结果（软件类结果已过滤，显示 0 条）</td></tr>';
+    return 0;
   }
   body.innerHTML = '';
   items.forEach(item => {
@@ -666,6 +706,7 @@ function renderResults(payload) {
     tr.querySelector('button').addEventListener('click', () => { $('appidInput').value = appid; nav('search'); });
     body.appendChild(tr);
   });
+  return items.length;
 }
 
 async function refreshLogs() {
@@ -680,26 +721,30 @@ async function refreshLogs() {
 }
 
 async function refresh(silent) {
-  if (!api) return;
+  if (!api) return false;
   const gen = ++generation;
   if (!silent) setSide('loading', '正在同步状态…');
   try {
     const [sessions, login, config, mcp] = await Promise.all([api.Sessions(), api.LoginStatus(), api.Config(), api.MCPStatus()]);
-    if (gen !== generation) return;
+    if (gen !== generation) return false;
     renderSessions(sessions);
     renderAccounts(login || {});
     metrics(login || {}, config || {}, mcp || {});
     if (document.activeElement !== $('loginPort')) $('loginPort').value = config.login_port || '';
     if (document.activeElement !== $('mcpPort')) $('mcpPort').value = config.mcp_port || '';
-    $('mcpBind').value = config.mcp_bind || '127.0.0.1';
-    $('globalSwitch').checked = config.mcp_enabled !== false;
-    $('hideWindow').checked = !!config.hide_miniapp_window;
+    if (!isDirty('mcpBind', $('mcpBind'))) $('mcpBind').value = config.mcp_bind || '127.0.0.1';
+    if (!isDirty('globalSwitch', $('globalSwitch'))) $('globalSwitch').checked = config.mcp_enabled !== false;
+    if (!isDirty('hideWindow', $('hideWindow'))) $('hideWindow').checked = !!config.hide_miniapp_window;
     refreshDumpStatus();
+    const loginView = login || {};
+    const diagnostic = loginView.diagnostic || {};
+    return !(loginView.error || (diagnostic.code && diagnostic.code !== 'ok'));
   } catch (error) {
     if (gen === generation) {
       setSide('bad', '状态同步失败');
       if (!silent) status('刷新失败：' + error, 'bad');
     }
+    return false;
   }
 }
 
@@ -740,6 +785,11 @@ async function bootstrap() {
     renderTools();
     renderSessions(boot.sessions || []);
     $('hideWindow').checked = !!(boot.config || {}).hide_miniapp_window;
+    if (boot.bundle_error) {
+      $('bundleErrorText').textContent = boot.bundle_error;
+      $('bundleErrorCard').style.display = '';
+      logAppend('内置组件释放失败：' + boot.bundle_error);
+    }
   } catch (error) {
     status('初始化失败：' + error);
   }
@@ -763,6 +813,7 @@ function tickQR() {
 }
 
 async function createQR() {
+  if (!api || $('qrCreate').disabled) return;
   const gen = ++state.qrGen;
   $('qrCreate').disabled = true;
   $('qrCreate').textContent = '刷新中…';
@@ -800,15 +851,28 @@ async function pollQR(gen, session) {
   const box = $('qrBox');
   // The sidecar's check is a long poll: WeChat blocks up to ~25s per call, and
   // on confirm the sidecar synchronously exchanges tokens + ManualAuth before
-  // returning "confirmed" (tens of seconds). Polls are already serialized by
-  // the await; just avoid hammering with 1.2s gaps and show a clear "confirming"
-  // state so the wait is not mistaken for a stuck UI.
+  // returning "confirmed" (tens of seconds). Every await is followed by a
+  // qrGen check so a refreshed code cannot be overwritten by a stale poll.
   while (gen === state.qrGen) {
     const scanned = state.qrState === 'scanned' || state.qrState === 'authorized';
     await new Promise(r => setTimeout(r, scanned ? 1500 : 2000));
     if (gen !== state.qrGen) return;
+    let result;
     try {
-      const result = await api.QRPoll(session);
+      result = await api.QRPoll(session);
+    } catch (error) {
+      if (gen !== state.qrGen) return;
+      state.qrState = 'unknown';
+      box.classList.remove('scanned', 'done'); box.classList.add('failed');
+      box.textContent = '状态查询失败';
+      $('qrStatus').textContent = '状态查询失败：' + maskSecrets(String(error)) + '。请点击“生成登录二维码”重新生成。';
+      $('qrRetry').style.display = 'none';
+      logAppend('二维码状态查询失败：' + error);
+      status('二维码状态查询失败，请重新生成', 'bad');
+      break;
+    }
+    if (gen !== state.qrGen) return;
+    try {
       const next = result.status || 'unknown';
       const changed = state.qrState !== next;
       state.qrState = next;
@@ -816,32 +880,44 @@ async function pollQR(gen, session) {
       if (changed) status('扫码状态：' + (QR_STATUS[next] || next), next === 'confirmed' ? 'ok' : 'busy');
 
       if (next === 'scanned' || next === 'authorized') {
-        // 已扫码：二维码淡化 + 遮罩文字，状态栏提示手机确认；尚未确认时保留重试入口
         box.classList.add('scanned'); box.classList.remove('done', 'failed');
         $('qrRetry').style.display = 'block';
         continue;
       }
       if (next === 'confirmed') {
-        // 已确认：先标记处理中，调后端保存身份；成功/失败分别给不同视觉
         box.classList.remove('scanned');
         $('qrStatus').textContent = '登录确认中…';
         $('qrRetry').style.display = 'none';
+        // Confirmation performs token exchange and can take tens of seconds;
+        // block both refresh paths until the account is actually persisted.
+        $('qrCreate').disabled = true;
+        $('refreshAccounts').disabled = true;
         try {
           const acc = await api.QRConfirm(session);
+          if (gen !== state.qrGen) return;
           box.classList.add('done');
           box.textContent = '✓ 登录成功';
           $('qrStatus').textContent = QR_STATUS.confirmed + (acc && acc.nickname ? '（' + acc.nickname + '）' : '');
           logAppend('扫码登录完成，账号已保存并设为当前账号');
           status('登录成功，账号已保存', 'ok');
         } catch (e) {
+          if (gen !== state.qrGen) return;
           box.classList.add('failed');
           box.textContent = '登录保存失败';
           $('qrStatus').textContent = '登录失败：' + e;
           $('qrRetry').style.display = 'block';
           logAppend('保存账号失败：' + e);
           status('保存账号失败：' + e, 'bad');
+        } finally {
+          if (gen === state.qrGen) {
+            $('qrCreate').disabled = false;
+            $('qrCreate').textContent = '刷新二维码';
+            $('refreshAccounts').disabled = false;
+          }
         }
-        await refresh(true); break;
+        await refresh(true);
+        if (gen !== state.qrGen) return;
+        break;
       }
       if (next === 'expired' || next === 'cancelled') {
         box.classList.remove('scanned', 'done');
@@ -851,11 +927,13 @@ async function pollQR(gen, session) {
         break;
       }
     } catch (error) {
+      if (gen !== state.qrGen) return;
       box.classList.remove('scanned'); box.classList.add('failed');
       box.textContent = '状态查询失败';
-      $('qrStatus').textContent = '状态查询失败：' + error;
-      $('qrRetry').style.display = 'block';
+      $('qrStatus').textContent = '状态查询失败：' + maskSecrets(String(error)) + '。请点击“生成登录二维码”重新生成。';
+      $('qrRetry').style.display = 'none';
       logAppend('二维码状态查询失败：' + error);
+      status('二维码状态查询失败，请重新生成', 'bad');
       break;
     }
   }
@@ -886,6 +964,7 @@ $('savePorts').addEventListener('click', async () => {
   try {
     const bind = $('mcpBind').value;
     const saved = await api.SavePorts(Number($('loginPort').value), Number($('mcpPort').value), bind);
+    clearDirty('mcpBind');
     logAppend('设置已保存：登录 ' + saved.login_port + ' / MCP ' + saved.mcp_port + '（监听 ' + bind + '）');
     status('已保存：MCP 监听 ' + bind + '，服务已自动重启', 'ok');
   } catch (error) {
@@ -994,22 +1073,30 @@ $('checkAccount').addEventListener('click', async () => {
 });
 $('refreshAccounts').addEventListener('click', async () => {
   status('正在刷新账号列表…', 'busy');
-  await refresh(true);
+  const ok = await refresh(true);
+  if (!ok) { status('账号列表刷新失败，请查看日志或状态栏', 'bad'); return; }
   status('账号列表已刷新：' + state.accounts.length + ' 个', 'ok');
 });
 $('toolFilter').addEventListener('input', event => { state.toolFilter = event.target.value; renderTools(); });
 $('toolGroup').addEventListener('change', event => { state.toolGroup = event.target.value; renderTools(); });
+$('exportDir').addEventListener('input', () => markDirty('exportDir'));
+$('exportDir').addEventListener('change', () => markDirty('exportDir'));
+$('mcpBind').addEventListener('change', () => markDirty('mcpBind'));
+$('hideWindow').addEventListener('change', () => markDirty('hideWindow'));
 $('bulkEnable').addEventListener('click', async () => { await bulkTools(true); });
 $('bulkDisable').addEventListener('click', async () => { await bulkTools(false); });
 $('globalSwitch').addEventListener('change', async event => {
   const enabled = event.target.checked;
+  markDirty('globalSwitch');
   status('正在' + (enabled ? '开启' : '关闭') + ' MCP 总开关…', 'busy');
   try {
     await api.GlobalTools(enabled);
+    clearDirty('globalSwitch');
     logAppend('MCP 总开关：' + enabled);
     status('MCP 总开关已' + (enabled ? '开启' : '关闭'), 'ok');
   } catch (error) {
     event.target.checked = !enabled;
+    clearDirty('globalSwitch');
     logAppend(String(error));
     status('切换 MCP 总开关失败：' + error, 'bad');
   }
@@ -1046,9 +1133,8 @@ $('searchBtn').addEventListener('click', async () => {
   status('正在搜索“' + keyword + '”…', 'busy');
   try {
     const payload = await api.Search(keyword, $('searchSource').value);
-    renderResults(payload);
-    const count = Array.isArray(payload.items) ? payload.items.length : 0;
-    status(payload.error ? '搜索未完成：' + payload.error : '搜索完成：' + count + ' 条', payload.error ? 'bad' : 'ok');
+    const count = renderResults(payload);
+    status(payload.error ? '搜索未完成：' + payload.error : '搜索完成：显示 ' + count + ' 条（已过滤软件类结果）', payload.error ? 'bad' : 'ok');
   } catch (error) {
     $('resultBody').innerHTML = '<tr><td colspan="5" class="muted">搜索失败：' + esc(String(error)) + '</td></tr>';
     status('搜索失败：' + error, 'bad');
@@ -1075,9 +1161,16 @@ $('launchBtn').addEventListener('click', async () => {
   status('正在启动并等待调试就绪…');
   try {
     const result = await api.Launch(appid, $('entryInput').value.trim(), seconds, $('hideWindow').checked);
-    const state = result.state || result.reason || 'ok';
-    logAppend('启动 ' + appid + '：' + state);
-    status(state === 'debug_ready' ? '小程序已进入可调试状态' : '启动返回：' + state, state === 'debug_ready' ? 'ok' : 'bad');
+    clearDirty('hideWindow');
+    const resultState = result && result.state ? String(result.state) : 'ok';
+    const reason = result && result.reason ? String(result.reason) : '';
+    const failure = result && result.error ? String(result.error) : '';
+    const detail = [resultState === 'ok' ? '' : resultState, reason, failure].filter(Boolean).join('；');
+    const failed = resultState === 'error' || !!(result && result.ok === false) || resultState === 'failed';
+    logAppend('启动 ' + appid + '：' + (detail || resultState));
+    status(failed ? '启动失败：' + (detail || resultState)
+      : resultState === 'debug_ready' ? '小程序已进入可调试状态'
+      : '启动返回：' + (detail || resultState), failed ? 'bad' : 'ok');
     nav('overview');
   } catch (error) {
     status('启动失败：' + String(error));
@@ -1089,13 +1182,23 @@ $('launchBtn').addEventListener('click', async () => {
 $('gotoSessions').addEventListener('click', () => nav('overview'));
 
 $('saveExportDir').addEventListener('click', async () => {
-  try { renderDumpStatus(await api.SaveExportDir($('exportDir').value.trim())); status('导出目录已保存', 'ok'); }
-  catch (e) { status('保存导出目录失败：' + e, 'bad'); }
+  markDirty('exportDir');
+  try {
+    renderDumpStatus(await api.SaveExportDir($('exportDir').value.trim()));
+    clearDirty('exportDir');
+    status('导出目录已保存', 'ok');
+  } catch (e) { status('保存导出目录失败：' + e, 'bad'); }
 });
 $('pickExportDir').addEventListener('click', async () => {
   try {
     const picked = await api.PickExportDir();
-    if (picked) { $('exportDir').value = picked; status('已选择目录，请点“保存目录”', 'busy'); }
+    if (picked) {
+      $('exportDir').value = picked;
+      markDirty('exportDir');
+      status('已选择目录，请点“保存目录”', 'busy');
+    } else {
+      status('已取消目录选择，未修改导出目录', 'busy');
+    }
   } catch (e) { status('选择目录失败：' + e, 'bad'); }
 });
 async function pollExport(taskId) {
@@ -1103,9 +1206,18 @@ async function pollExport(taskId) {
   const btn = $('exportBtn');
   btn.disabled = true; btn.textContent = '导出中…';
   const t0 = Date.now();
+  let polls = 0;
   while (true) {
+    polls++;
+    if (Date.now() - t0 >= EXPORT_TIMEOUT_MS || polls > EXPORT_MAX_POLLS) {
+      out.textContent = '✗ 导出轮询超时 · 已用 ' + Math.round((Date.now() - t0) / 1000) + 's\n任务可能仍在后台运行，请稍后用导出状态查询或重新导出。';
+      status('导出轮询超时，任务可能仍在后台运行', 'bad');
+      logAppend('导出任务 ' + taskId + ' 轮询超时（' + polls + ' 次）');
+      btn.disabled = false; btn.textContent = '导出此小程序包';
+      return;
+    }
     try {
-      const st = await api.ExportStatus('status', taskId, 1);
+      const st = await withTimeout(api.ExportStatus('status', taskId, 1), EXPORT_CALL_TIMEOUT_MS, '进度查询超时（15 秒）');
       const state = st && st.state || 'unknown';
       const elapsed = st && st.elapsed_ms ? Math.round(st.elapsed_ms / 1000) : Math.round((Date.now() - t0) / 1000);
       // Real progress from the sidecar SSE stream: done/total packages or files.
@@ -1181,6 +1293,7 @@ $('exportBtn').addEventListener('click', async () => {
 
 $('clearLogs').addEventListener('click', async () => {
   await api.ClearLogs();
+  state.frontLogs = [];
   $('logText').textContent = '';
   status('日志已清空', 'ok');
 });
