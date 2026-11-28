@@ -5,12 +5,18 @@ function emit(event, data) {
     send(Object.assign({event: event, pid: Process.id}, data || {}));
 }
 function attempt(fn) { try { return fn(); } catch (_) { return null; } }
+function jumpFlagPath(name) {
+    let dir = 'C:\\Windows\\Temp\\';
+    try { dir = (Process.environment.WMPF_TEMP_DIR || dir).trim(); } catch (_) {}
+    if (dir && !/[\\/]$/.test(dir)) dir += '\\';
+    return dir + name;
+}
 function readTarget() {
     let v = '';
     try { v = (Process.environment.WMPF_JUMP_TARGET_APPID || '').trim(); } catch (_) {}
     if (!v) {
         try {
-            const f = new File('C:\\Windows\\Temp\\wmpf-jump-target-appid.txt', 'r');
+            const f = new File(jumpFlagPath('wmpf-jump-target-appid.txt'), 'r');
             const bytes = new Uint8Array(f.readAll());
             f.close();
             for (let i = 0; i < bytes.length; i++) v += String.fromCharCode(bytes[i]);
@@ -43,7 +49,7 @@ function asciiPattern(text) {
 }
 function readScanFlag() {
     try {
-        const f = new File('C:\\Windows\\Temp\\wmpf-native-xref-scan.flag', 'r');
+        const f = new File(jumpFlagPath('wmpf-native-xref-scan.flag'), 'r');
         const bytes = new Uint8Array(f.readAll());
         f.close();
         let text = '';

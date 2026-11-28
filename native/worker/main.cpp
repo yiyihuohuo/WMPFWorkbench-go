@@ -24,6 +24,7 @@ static std::wstring wide(const std::string&s){int n=MultiByteToWideChar(CP_UTF8,
 static std::string utf8(const std::wstring&s){int n=WideCharToMultiByte(CP_UTF8,0,s.data(),(int)s.size(),nullptr,0,nullptr,nullptr);std::string out(n,0);if(n)WideCharToMultiByte(CP_UTF8,0,s.data(),(int)s.size(),out.data(),n,nullptr,nullptr);return out;}
 static std::string quote(const std::string&s){JsonNode*n=json_node_new(JSON_NODE_VALUE);json_node_set_string(n,s.c_str());gchar*raw=json_to_string(n,FALSE);std::string out(raw);g_free(raw);json_node_free(n);return out;}
 static std::wstring tempFlagPath(const std::string&name){wchar_t dir[MAX_PATH]={};DWORD n=GetTempPathW(MAX_PATH,dir);std::wstring base;if(n==0||n>=MAX_PATH){try{base=fs::temp_directory_path().wstring();}catch(...){base=L".";}}else{base=std::wstring(dir,n);}if(!base.empty()&&base.back()!=L'\\'&&base.back()!=L'/')base+=L'\\';return base+wide(name);}
+static std::string tempDirUtf8(){wchar_t dir[MAX_PATH]={};DWORD n=GetTempPathW(MAX_PATH,dir);std::wstring base;if(n==0||n>=MAX_PATH){try{base=fs::temp_directory_path().wstring();}catch(...){base=L".";}}else{base=std::wstring(dir,n);}if(!base.empty()&&base.back()!=L'\\'&&base.back()!=L'/')base+=L'\\';return utf8(base);}
 struct Config{std::string appid,sessionID,host,runtime,profile,inputs,out,stop,gate,closeAppidFile;std::int64_t seconds=0;bool hide=true,fixture=false;};
 struct Attachment{FridaSession*session=nullptr;FridaScript*script=nullptr;};
 struct Observer{
@@ -92,7 +93,7 @@ navHookSource = NATIVE_APPID_HOOK_SOURCE;
 xrefScanSource = NATIVE_XREF_SCAN_SOURCE;
 #endif
 g_signal_connect(device,"child-added",G_CALLBACK(childAdded),this);g_signal_connect(device,"output",G_CALLBACK(onOutput),this);
- std::vector<std::string>env={"WMPF_APPID="+cfg.appid,"WMPF_ROOT="+cfg.profile,"WMPF_RUNTIME_DIR="+cfg.runtime,"WMPF_DATA_DIR="+cfg.out,"WMPF_CLOSE_APPID_FILE="+cfg.closeAppidFile,"WMPF_LOGIN_BUF="+(fs::u8path(cfg.inputs)/"login.txt").u8string(),"WMPF_LAUNCH_CFG="+(fs::u8path(cfg.inputs)/"launch.bin").u8string(),"WMPF_LOGIN_EVENT="+event,"WMPF_USE_CB=1","WMPF_GERR=3000","WMPF_OBS="+std::to_string(cfg.seconds),"WMPF_LOGIN_DELAY=4000","WMPF_OBS_KEEP=1"};
+ std::vector<std::string>env={"WMPF_APPID="+cfg.appid,"WMPF_ROOT="+cfg.profile,"WMPF_RUNTIME_DIR="+cfg.runtime,"WMPF_DATA_DIR="+cfg.out,"WMPF_CLOSE_APPID_FILE="+cfg.closeAppidFile,"WMPF_LOGIN_BUF="+(fs::u8path(cfg.inputs)/"login.txt").u8string(),"WMPF_LAUNCH_CFG="+(fs::u8path(cfg.inputs)/"launch.bin").u8string(),"WMPF_LOGIN_EVENT="+event,"WMPF_USE_CB=1","WMPF_TEMP_DIR="+tempDirUtf8(),"WMPF_GERR=3000","WMPF_OBS="+std::to_string(cfg.seconds),"WMPF_LOGIN_DELAY=4000","WMPF_OBS_KEEP=1"};
  if(const char*authFlow=getenv("WMPF_AUTH_FLOW"))env.push_back(std::string("WMPF_AUTH_FLOW=")+authFlow);
  // The host window (L"wmpf host") is only a hidden top-level HWND for runtime
  // init — it is NOT the mini-program window (that belongs to the browser

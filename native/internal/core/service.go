@@ -614,6 +614,11 @@ func (s *Service) Call(ctx context.Context, name string, args map[string]any) (a
 			if s.BridgeAppID == "" || !app.AppID.MatchString(s.BridgeAppID) {
 				return map[string]any{"ok": false, "grade": "blocked", "reason": "未配置可用的跳板小程序"}, nil
 			}
+			// Arm the native AppID hook before the bridge host is spawned so the
+			// Frida script can read the real target from the system temp dir.
+			if err := armNativeJumpHook(target); err != nil {
+				return map[string]any{"ok": false, "grade": "blocked", "reason": "二跳 hook 准备失败", "error": err.Error()}, nil
+			}
 			launchAppID = s.BridgeAppID
 			hop.LauncherAppID = s.BridgeAppID
 			hop.BridgeHidden = true
