@@ -84,9 +84,10 @@ type session struct {
 	preloadSlot                                    string
 	inputsDir                                      string
 	manualMintStarted                              bool
-	resetCount                                     int
+	resetCount, recentResetCount                   int
 	resetTimes                                     []time.Time
-	workerPID, hostPID                             int
+	workerPID, hostPID, initialHostPID             int
+	hostRebindSeen                                 bool
 	recentEvents                                   []string
 }
 
@@ -332,19 +333,22 @@ func (m *Manager) signalCleanup(s *session) {
 // ReadyFailure is the typed readiness error used by callers to decide whether
 // a launch should be restarted and to report a concrete reason.
 type ReadyFailure struct {
-	Reason        string
-	Detail        string
-	PreloadSlot   string
-	Phase         string
-	ResetCount    int
-	LoginOK       bool
-	HostConnected bool
-	AppStartSeen  bool
-	SetupSeen     bool
-	LastLoginCode int
-	WorkerPID     int
-	HostPID       int
-	LastEvents    []string
+	Reason           string
+	Detail           string
+	PreloadSlot      string
+	Phase            string
+	ResetCount       int
+	RecentResetCount int
+	LoginOK          bool
+	HostConnected    bool
+	AppStartSeen     bool
+	SetupSeen        bool
+	HostRebindSeen   bool
+	LastLoginCode    int
+	WorkerPID        int
+	HostPID          int
+	InitialHostPID   int
+	LastEvents       []string
 }
 
 // noteEventLocked keeps a short, payload-free tail of the event stream so a
@@ -387,6 +391,51 @@ func eventPID(payload map[string]any) int {
 	return optionalPID(payload, "host_pid")
 }
 
+// scriptPID reads a host PID from either the flattened payload used by tests
+// or the nested {"payload":{...}} shape emitted by the native script bridge.
+func scriptPID(payload map[string]any) int {
+	if pid := eventPID(payload); pid > 0 {
+		return pid
+	}
+	if inner, ok := payload["payload"].(map[string]any); ok {
+		return eventPID(inner)
+	}
+	return 0
+}
+
+// noteHostPIDLocked adopts the current host PID while preserving the first PID
+// observed for the session: a ReLaunch replaces the process, not the original
+// host identity recorded at worker start.
+func noteHostPIDLocked(s *session, pid int) {
+	if s == nil || pid <= 0 {
+		return
+	}
+	if s.initialHostPID == 0 {
+		s.initialHostPID = pid
+	}
+	s.hostPID = pid
+}
+
+// noteHostRebuildLocked marks the ReLaunch -> InitCore -> ReBind ->
+// LaunchAndBind chain as real progress so a reset after it is not reported as
+// "host_bootstrap / 尚未进入登录". ReLaunch also carries the new host PID.
+func noteHostRebuildLocked(s *session, inner string, payload map[string]any) {
+	if s == nil {
+		return
+	}
+	s.hostRebindSeen = true
+	if inner == "host.ReLaunch" {
+		noteHostPIDLocked(s, scriptPID(payload))
+	}
+}
+
+func (m *Manager) logFailure(format string, args ...any) {
+	if m == nil || m.Logf == nil {
+		return
+	}
+	m.Logf(format, args...)
+}
+
 func failurePhase(s *session) string {
 	if s == nil {
 		return "unknown"
@@ -398,6 +447,8 @@ func failurePhase(s *session) string {
 		return "app_start"
 	case s.loginOK:
 		return "login_ready"
+	case s.hostRebindSeen:
+		return "host_rebind"
 	case s.hostConnected:
 		return "host_connected"
 	case s.started:
@@ -411,6 +462,8 @@ func resetAdvice(phase string) string {
 	switch phase {
 	case "host_bootstrap", "worker_started":
 		return "请完全退出工作台与宿主进程，校验发行包完整性，必要时备份并重置运行数据；此时尚未进入登录与应用启动，请勿通过切换目标排查"
+	case "host_rebind":
+		return "宿主已执行 ReLaunch/InitCore/ReBind/LaunchAndBind 重建链但未完成登录；请按 host_pid 排查该宿主并保留 observation/events.jsonl，重新扫码登录或检查账号授权后重试"
 	case "host_connected":
 		return "宿主通道已建立但未完成登录；请重新扫码登录或检查账号授权状态后重试"
 	default:
@@ -429,7 +482,7 @@ func (e *ReadyFailure) Error() string {
 			}
 			return "否"
 		}
-		parts := []string{fmt.Sprintf("WMPF 宿主在启动阶段连续重置 %d 次，目标未进入可调试状态", e.ResetCount)}
+		parts := []string{fmt.Sprintf("WMPF 宿主在启动阶段 30 秒内累计重置 %d 次（其中 10 秒内 %d 次），目标未进入可调试状态", e.ResetCount, e.RecentResetCount)}
 		parts = append(parts, fmt.Sprintf("阶段=%s，登录态=%s，宿主连接=%s，应用启动=%s，setup=%s",
 			e.Phase, yesNo(e.LoginOK), yesNo(e.HostConnected), yesNo(e.AppStartSeen), yesNo(e.SetupSeen)))
 		if e.LastLoginCode != 0 {
@@ -437,6 +490,9 @@ func (e *ReadyFailure) Error() string {
 		}
 		if e.HostPID != 0 {
 			parts = append(parts, fmt.Sprintf("host_pid=%d", e.HostPID))
+		}
+		if e.InitialHostPID != 0 && e.InitialHostPID != e.HostPID {
+			parts = append(parts, fmt.Sprintf("initial_host_pid=%d", e.InitialHostPID))
 		}
 		if e.WorkerPID != 0 {
 			parts = append(parts, fmt.Sprintf("worker_pid=%d", e.WorkerPID))
@@ -516,12 +572,13 @@ func (m *Manager) noteResetLocked(s *session) bool {
 			recent++
 		}
 	}
-	progress := s.loginOK || s.hostConnected || s.appStartSeen || s.setupSeen || s.cdpOK
+	s.recentResetCount = recent
+	progress := s.loginOK || s.hostConnected || s.appStartSeen || s.setupSeen || s.cdpOK || s.hostRebindSeen
 	return (!progress && recent >= 3) || len(s.resetTimes) >= 5
 }
 
 func (m *Manager) failReady(s *session, reason string, detail ...string) {
-	if s == nil || s.readyFailed == nil || channelClosed(s.ready) {
+	if s == nil || s.readyFailed == nil || channelClosed(s.ready) || channelClosed(s.readyFailed) {
 		return
 	}
 	text := strings.Join(detail, " ")
@@ -529,14 +586,23 @@ func (m *Manager) failReady(s *session, reason string, detail ...string) {
 	s.readyErr = &ReadyFailure{
 		Reason: reason, Detail: text, PreloadSlot: s.preloadSlot,
 		Phase: failurePhase(s), ResetCount: s.resetCount,
-		LoginOK: s.loginOK, HostConnected: s.hostConnected,
+		RecentResetCount: s.recentResetCount,
+		LoginOK:          s.loginOK, HostConnected: s.hostConnected,
 		AppStartSeen: s.appStartSeen, SetupSeen: s.setupSeen || s.cdpOK,
-		LastLoginCode: s.lastLoginCode,
-		WorkerPID:     s.workerPID, HostPID: s.hostPID,
-		LastEvents: append([]string(nil), s.recentEvents...),
+		HostRebindSeen: s.hostRebindSeen,
+		LastLoginCode:  s.lastLoginCode,
+		WorkerPID:      s.workerPID, HostPID: s.hostPID,
+		InitialHostPID: s.initialHostPID,
+		LastEvents:     append([]string(nil), s.recentEvents...),
+	}
+	if s.message == "" {
+		s.message = s.readyErr.Error()
 	}
 	s.readyFailOnce.Do(func() { close(s.readyFailed) })
 	m.notifyReadyLocked(s)
+	// The first failure is the incident. Persist it immediately, before a
+	// later event or the run defer can change state or evict the session.
+	m.recordFailure(s, s.readyErr)
 }
 func (m *Manager) noteStartEvent(s *session, appid string) {
 	if s == nil || appid == "" {
@@ -712,7 +778,7 @@ func (m *Manager) event(s *session, event string, payload map[string]any) {
 	case "worker.started":
 		s.started = true
 		if pid := eventPID(payload); pid > 0 {
-			s.hostPID = pid
+			noteHostPIDLocked(s, pid)
 		}
 		if pid := optionalPID(payload, "worker_pid"); pid > 0 {
 			s.workerPID = pid
@@ -765,9 +831,7 @@ func (m *Manager) event(s *session, event string, payload map[string]any) {
 	case "process.seen":
 		pid := eventPID(payload)
 		if pid > 0 {
-			if s.hostPID == 0 {
-				s.hostPID = pid
-			}
+			noteHostPIDLocked(s, pid)
 			seen := false
 			for _, existing := range s.pids {
 				if existing == pid {
@@ -835,6 +899,9 @@ func (m *Manager) event(s *session, event string, payload map[string]any) {
 				if m.noteResetLocked(s) {
 					m.failReady(s, "repeated_reset", fmt.Sprintf("count=%d", s.resetCount))
 				}
+			case "host.ReLaunch", "host.InitCore", "host.ReBind", "host.LaunchAndBind":
+				noteHostRebuildLocked(s, inner, payload)
+				m.notifyReadyLocked(s)
 			case "devtools.Start", "devtools.SetupContext", "runtime.Construct", "runtime.ReusePreload":
 				// The observer reads the runtime's appid straight out of memory
 				// (runtimeInfo). An in-app jump to a mini program that is not in
@@ -857,6 +924,9 @@ func (m *Manager) event(s *session, event string, payload map[string]any) {
 		if m.noteResetLocked(s) {
 			m.failReady(s, "repeated_reset", fmt.Sprintf("count=%d", s.resetCount))
 		}
+	case "host.ReLaunch", "host.InitCore", "host.ReBind", "host.LaunchAndBind":
+		noteHostRebuildLocked(s, event, payload)
+		m.notifyReadyLocked(s)
 	case "script.error", "host.spawn_error", "host.job_error", "session.attach_error", "script.create_error", "script.load_error":
 		s.message = "原生观测或宿主启动失败: " + event
 		m.failReady(s, "observer_failed", s.message)
@@ -951,7 +1021,19 @@ func (m *Manager) run(ctx context.Context, s *session) {
 		os.Remove(filepath.Join(s.dir, "attempt-2", "inputs", "login.txt"))
 		m.mu.Lock()
 		defer m.mu.Unlock()
-		if s.state == "stopping" {
+		// A ReadyFailure is the first, concrete reason. Keep it even when the
+		// worker exits cleanly afterwards (runErr == nil) or a close was asked.
+		hasReadyFailure := s.readyErr != nil || channelClosed(s.readyFailed)
+		if hasReadyFailure && s.state != "error" {
+			s.state = "error"
+			if s.message == "" {
+				if s.readyErr != nil {
+					s.message = s.readyErr.Error()
+				} else {
+					s.message = failureReason(s, runErr)
+				}
+			}
+		} else if s.state == "stopping" {
 			s.state = "closed"
 		} else if s.state != "error" && runErr != nil {
 			s.state = "error"
@@ -1270,22 +1352,52 @@ func failureReason(s *session, runErr error) string {
 
 // recordFailure writes observation/failure.json for a terminal error session.
 // Callers must hold m.mu. Failures here are best-effort and never change the
-// session state — the reason is still exposed via Sessions() and Logf.
+// session state — the reason is still exposed via Sessions() and Logf. Every
+// write failure is reported through Logf instead of being swallowed.
 func (m *Manager) recordFailure(s *session, runErr error) {
+	if s == nil || s.dir == "" {
+		return
+	}
 	dir := filepath.Join(s.dir, "observation")
 	if err := os.MkdirAll(dir, 0700); err != nil {
+		m.logFailure("会话 %s 失败记录目录创建失败: %v", s.id, err)
 		return
+	}
+	reason := failureReason(s, runErr)
+	phase := failurePhase(s)
+	if failure, ok := s.readyErr.(*ReadyFailure); ok && failure != nil {
+		reason = failure.Error()
+		phase = failure.Phase
 	}
 	row := map[string]any{
 		"event": "session.failed", "session_id": s.id, "appid": s.appid,
-		"state": s.state, "reason": failureReason(s, runErr),
-		"login_confirmed": s.login, "launch_confirmed": s.launched,
+		"state": s.state, "reason": reason,
+		"failure_reason":     s.readyFailReason,
+		"phase":              phase,
+		"reset_count":        s.resetCount,
+		"recent_reset_count": s.recentResetCount,
+		"host_pid":           s.hostPID,
+		"initial_host_pid":   s.initialHostPID,
+		"worker_pid":         s.workerPID,
+		"last_events":        append([]string(nil), s.recentEvents...),
+		"host_rebind_seen":   s.hostRebindSeen,
+		"login_confirmed":    s.login, "launch_confirmed": s.launched,
 		"debug_connected": s.debug, "worker_started": s.started,
 		"cleanup_state": s.cleanupState, "failed_at": time.Now().Format(time.RFC3339),
 	}
 	data, err := json.MarshalIndent(row, "", "  ")
 	if err != nil {
+		m.logFailure("会话 %s 失败记录序列化失败: %v", s.id, err)
 		return
 	}
-	_ = os.WriteFile(filepath.Join(dir, "failure.json"), append(data, '\n'), 0600)
+	final := filepath.Join(dir, "failure.json")
+	tmp := final + ".tmp"
+	if err := os.WriteFile(tmp, append(data, '\n'), 0600); err != nil {
+		m.logFailure("会话 %s 失败记录临时文件写入失败: %v", s.id, err)
+		return
+	}
+	if err := os.Rename(tmp, final); err != nil {
+		os.Remove(tmp)
+		m.logFailure("会话 %s 失败记录落盘失败: %v", s.id, err)
+	}
 }

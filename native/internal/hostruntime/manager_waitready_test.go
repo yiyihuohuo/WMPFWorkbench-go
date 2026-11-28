@@ -142,7 +142,7 @@ func TestRepeatedResetErrorIncludesDiagnostics(t *testing.T) {
 	if failure.Phase != "host_bootstrap" || failure.ResetCount != 3 || failure.LoginOK {
 		t.Fatalf("bad diagnostics: %#v", failure)
 	}
-	if !strings.Contains(err.Error(), "WMPF 宿主在启动阶段连续重置 3 次") ||
+	if !strings.Contains(err.Error(), "WMPF 宿主在启动阶段 30 秒内累计重置 3 次") ||
 		!strings.Contains(err.Error(), "阶段=host_bootstrap") {
 		t.Fatalf("unhelpful error: %v", err)
 	}

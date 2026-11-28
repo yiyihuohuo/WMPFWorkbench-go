@@ -384,15 +384,15 @@ func TestRefreshTicketRequiresAliveStatus(t *testing.T) {
 }
 
 func TestAttemptPathsIsolateRetryInputsAndGate(t *testing.T) {
-        root := filepath.Join(t.TempDir(), "session")
-        first := pathsForAttempt(root, 1)
-        second := pathsForAttempt(root, 2)
-        if first.inputs == second.inputs || first.gate == second.gate || first.workerConfig == second.workerConfig {
-                t.Fatalf("retry reused first attempt paths: first=%+v second=%+v", first, second)
-        }
-        if first.inputs != filepath.Join(root, "inputs") || second.inputs != filepath.Join(root, "attempt-2", "inputs") {
-                t.Fatalf("unexpected attempt input paths: first=%+v second=%+v", first, second)
-        }
+	root := filepath.Join(t.TempDir(), "session")
+	first := pathsForAttempt(root, 1)
+	second := pathsForAttempt(root, 2)
+	if first.inputs == second.inputs || first.gate == second.gate || first.workerConfig == second.workerConfig {
+		t.Fatalf("retry reused first attempt paths: first=%+v second=%+v", first, second)
+	}
+	if first.inputs != filepath.Join(root, "inputs") || second.inputs != filepath.Join(root, "attempt-2", "inputs") {
+		t.Fatalf("unexpected attempt input paths: first=%+v second=%+v", first, second)
+	}
 }
 
 func TestRecordFailurePersistsReason(t *testing.T) {
@@ -404,9 +404,13 @@ func TestRecordFailurePersistsReason(t *testing.T) {
 	m.recordFailure(s, errors.New("early mint failure"))
 	path := filepath.Join(s.dir, "observation", "failure.json")
 	raw, err := os.ReadFile(path)
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	var row map[string]any
-	if err := json.Unmarshal(raw, &row); err != nil { t.Fatal(err) }
+	if err := json.Unmarshal(raw, &row); err != nil {
+		t.Fatal(err)
+	}
 	if row["event"] != "session.failed" || row["session_id"] != s.id || row["appid"] != s.appid {
 		t.Fatalf("failure record missing identity: %v", row)
 	}
@@ -425,5 +429,180 @@ func TestFailureReasonDedupes(t *testing.T) {
 	got := failureReason(s2, errors.New("票据刷新失败：网络超时"))
 	if !strings.Contains(got, "error_code=-10") || !strings.Contains(got, "网络超时") {
 		t.Fatalf("distinct reasons not joined: %s", got)
+	}
+}
+
+func readyFailureSession(dir string) (*Manager, *session) {
+	s := &session{
+		id: "fail-1", appid: "wx0123456789abcdef", dir: dir,
+		state: "running", created: time.Now(), ctx: context.Background(),
+		done: make(chan struct{}), cleanupDone: make(chan struct{}),
+		ready: make(chan struct{}), readyFailed: make(chan struct{}),
+		readyChanged: make(chan struct{}, 1),
+	}
+	return &Manager{rows: map[string]*session{s.id: s}}, s
+}
+
+func TestFailReadyFirstCauseWins(t *testing.T) {
+	m, s := readyFailureSession(t.TempDir())
+	m.failReady(s, "repeated_reset", "count=3")
+	first, firstMessage := s.readyErr, s.message
+	m.failReady(s, "host_timeout", "later event")
+	if !channelClosed(s.readyFailed) {
+		t.Fatal("readyFailed not signalled")
+	}
+	if s.readyErr != first || s.readyFailReason != "repeated_reset" {
+		t.Fatalf("later failure overwrote first cause: %#v / %s", s.readyErr, s.readyFailReason)
+	}
+	failure, ok := s.readyErr.(*ReadyFailure)
+	if !ok || failure.Reason != "repeated_reset" || failure.Detail != "count=3" {
+		t.Fatalf("first ReadyFailure mutated: %#v", s.readyErr)
+	}
+	if s.message == "" || s.message != firstMessage {
+		t.Fatalf("session message missing or overwritten: %q", s.message)
+	}
+}
+
+func TestFailReadyPersistsFailureJSON(t *testing.T) {
+	dir := t.TempDir()
+	m, s := readyFailureSession(dir)
+	m.event(s, "worker.started", map[string]any{"pid": float64(800), "worker_pid": float64(700)})
+	for i := 0; i < 3; i++ {
+		m.event(s, "script", map[string]any{"event": "host.Reset"})
+	}
+	path := filepath.Join(dir, "observation", "failure.json")
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var row map[string]any
+	if err := json.Unmarshal(raw, &row); err != nil {
+		t.Fatal(err)
+	}
+	for key, want := range map[string]any{
+		"event": "session.failed", "session_id": s.id, "appid": s.appid,
+		"failure_reason": "repeated_reset", "phase": "worker_started",
+		"reset_count": float64(3), "recent_reset_count": float64(3),
+		"host_pid": float64(800), "initial_host_pid": float64(800),
+		"worker_pid": float64(700), "worker_started": true,
+	} {
+		if row[key] != want {
+			t.Fatalf("%s=%v, want %v in %s", key, row[key], want, raw)
+		}
+	}
+	for _, key := range []string{"reason", "last_events", "login_confirmed", "launch_confirmed", "debug_connected", "cleanup_state", "failed_at"} {
+		if _, ok := row[key]; !ok {
+			t.Fatalf("failure.json missing %s: %s", key, raw)
+		}
+	}
+	events, ok := row["last_events"].([]any)
+	if !ok || len(events) < 3 {
+		t.Fatalf("last_events not persisted: %v", row["last_events"])
+	}
+	if reason := fmt.Sprint(row["reason"]); !strings.Contains(reason, "30 秒内累计重置 3 次（其中 10 秒内 3 次）") {
+		t.Fatalf("ReadyFailure reason not preferred: %s", reason)
+	}
+	if _, err := os.Stat(path + ".tmp"); !os.IsNotExist(err) {
+		t.Fatalf("atomic write left temp file: %v", err)
+	}
+}
+
+func TestHostRebuildPhaseAndProgress(t *testing.T) {
+	dir := t.TempDir()
+	m, s := readyFailureSession(dir)
+	m.event(s, "script", map[string]any{"event": "host.ReLaunch", "pid": float64(9100)})
+	for _, inner := range []string{"host.InitCore", "host.ReBind", "host.LaunchAndBind"} {
+		m.event(s, "script", map[string]any{"event": inner})
+	}
+	if !s.hostRebindSeen || failurePhase(s) != "host_rebind" {
+		t.Fatalf("rebuild chain not recognised: rebind=%v phase=%s", s.hostRebindSeen, failurePhase(s))
+	}
+	for i := 0; i < 3; i++ {
+		m.event(s, "script", map[string]any{"event": "host.Reset"})
+	}
+	if channelClosed(s.readyFailed) {
+		t.Fatal("rebuild progress must raise the three-reset threshold")
+	}
+	for i := 0; i < 2; i++ {
+		m.event(s, "script", map[string]any{"event": "host.Reset"})
+	}
+	if !channelClosed(s.readyFailed) {
+		t.Fatal("five resets must fail even after rebuild progress")
+	}
+	failure, ok := s.readyErr.(*ReadyFailure)
+	if !ok || failure.Phase != "host_rebind" || !failure.HostRebindSeen {
+		t.Fatalf("failure lost rebuild phase: %#v", s.readyErr)
+	}
+	if strings.Contains(failure.Error(), "尚未进入登录") {
+		t.Fatalf("rebuild phase still claims no login attempt: %s", failure.Error())
+	}
+	if s.hostPID != 9100 || s.initialHostPID != 9100 {
+		t.Fatalf("ReLaunch pid not adopted: current=%d initial=%d", s.hostPID, s.initialHostPID)
+	}
+}
+
+func TestHostPIDUpdatesPreserveInitial(t *testing.T) {
+	m, s := readyFailureSession(t.TempDir())
+	m.event(s, "worker.started", map[string]any{"pid": float64(1001), "worker_pid": float64(1002)})
+	if s.hostPID != 1001 || s.initialHostPID != 1001 || s.workerPID != 1002 {
+		t.Fatalf("initial pids not recorded: host=%d initial=%d worker=%d", s.hostPID, s.initialHostPID, s.workerPID)
+	}
+	m.event(s, "process.seen", map[string]any{"pid": float64(2001)})
+	if s.hostPID != 2001 || s.initialHostPID != 1001 {
+		t.Fatalf("process.seen did not update current host pid: host=%d initial=%d", s.hostPID, s.initialHostPID)
+	}
+	m.event(s, "script", map[string]any{"event": "host.ReLaunch", "payload": map[string]any{"host_pid": float64(3001)}})
+	if s.hostPID != 3001 || s.initialHostPID != 1001 {
+		t.Fatalf("ReLaunch did not adopt new host pid: host=%d initial=%d", s.hostPID, s.initialHostPID)
+	}
+}
+
+func TestRepeatedResetErrorUsesTimeWindows(t *testing.T) {
+	m, s := readyFailureSession(t.TempDir())
+	for i := 0; i < 3; i++ {
+		m.event(s, "script", map[string]any{"event": "host.Reset"})
+	}
+	failure, ok := s.readyErr.(*ReadyFailure)
+	if !ok || failure.ResetCount != 3 || failure.RecentResetCount != 3 {
+		t.Fatalf("reset counts not retained: %#v", s.readyErr)
+	}
+	msg := failure.Error()
+	if !strings.Contains(msg, "30 秒内累计重置 3 次（其中 10 秒内 3 次）") || strings.Contains(msg, "连续重置") {
+		t.Fatalf("error text still uses misleading wording: %s", msg)
+	}
+}
+
+func TestRecordFailureReportsWriteFailure(t *testing.T) {
+	blocked := filepath.Join(t.TempDir(), "blocked")
+	if err := os.WriteFile(blocked, []byte("x"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	logs := []string{}
+	m := &Manager{Logf: func(format string, args ...any) {
+		logs = append(logs, fmt.Sprintf(format, args...))
+	}}
+	s := &session{id: "fail-log", dir: blocked, state: "error", message: "boom"}
+	m.recordFailure(s, nil)
+	if len(logs) == 0 || !strings.Contains(logs[0], "失败记录目录创建失败") {
+		t.Fatalf("write failure not reported via Logf: %v", logs)
+	}
+}
+
+func TestRunDeferKeepsExistingReadyFailure(t *testing.T) {
+	m, s := readyFailureSession(t.TempDir())
+	m.MintLaunch = func(ctx context.Context, id, entry, dest string) (map[string]any, error) {
+		return nil, nil
+	}
+	s.resetCount, s.recentResetCount = 3, 3
+	m.failReady(s, "repeated_reset", "count=3")
+	s.state = "stopping"
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	m.run(ctx, s)
+	if s.state != "error" {
+		t.Fatalf("ReadyFailure overwritten as %s", s.state)
+	}
+	if s.readyFailReason != "repeated_reset" || !strings.Contains(s.message, "30 秒内累计重置 3 次") {
+		t.Fatalf("ReadyFailure reason or message lost: %s / %q", s.readyFailReason, s.message)
 	}
 }
