@@ -250,6 +250,20 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File native\build-release.ps1
 
 ---
 
+## 诊断日志导出
+
+**入口**：「关于」页 →「诊断日志」→「导出诊断日志（ZIP）」。选择保存位置后，会把最近一次启动失败会话打包成 ZIP；`failed_at`（支持多种时间格式）决定选取哪个会话，同秒时按文件 mtime、会话 ID 依次判定。
+
+**包含文件**：`README.txt`、`manifest.json`（含全部文件清单、大小与 SHA-256；自身哈希按 sha256 字段填固定占位符时的规范化 JSON 计算）、`missing.txt`（仅缺失时）、`events.jsonl`、`worker.json`、`failure.json`、`inputs/metadata.json`、`bridge.jsonl`、`attempt-2/worker.json`、`attempt-2/inputs/metadata.json`、`agent/*.log`、`devtools/*.log`、`ui-log.txt`。`events.jsonl` / `bridge.jsonl` 优先取会话的 `observation/` 目录，不存在时回退到会话根目录；agent 日志按文件身份去重，时间窗为失败时间前 60 分钟到后 15 分钟。
+
+**缺失容忍**：单个源文件或日志缺失、读取失败、超限时不会中断导出，原因写入 `manifest.json` 的 `missing_files` 与 `missing.txt`；其余文件照常打包。
+
+**脱敏**：导出前移除 `uin`、`openid`、`unionid`、`sessionid`、`token`、`sign`、`cookie` 等账户标识与凭据（含 camelCase 键名及多键值 Cookie），并把本机路径替换为 `<APP_ROOT>` / `<TEMP>` / `<USER>`（大小写不敏感）；事件名、错误码和时间戳保留。
+
+**大小限制**：整个归档最多 64 MiB；单个 agent / UI 日志只保留末尾 4 MiB 并标记 `truncated`；agent 日志最多 12 个，超出部分记入缺失清单。
+
+---
+
 ## MCP 工具（18 个）
 
 | 分组 | 工具 |
