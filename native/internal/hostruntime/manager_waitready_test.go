@@ -2,7 +2,10 @@ package hostruntime
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -126,6 +129,34 @@ func TestHostResetAfterProgressDoesNotFailAtThree(t *testing.T) {
 	}
 	if !channelClosed(s.readyFailed) {
 		t.Fatal("five resets must fail even after progress")
+	}
+}
+
+func TestWaitReadyWatchdogPersistsFailure(t *testing.T) {
+	m, s := waitReadySession("wx1644df8e4fe6f725")
+	s.dir = t.TempDir()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := m.WaitReady(ctx, s.id)
+	var failure *ReadyFailure
+	if !errors.As(err, &failure) || failure.Reason != "watchdog" {
+		t.Fatalf("expected watchdog ReadyFailure, got %v", err)
+	}
+	if s.state != "error" {
+		t.Fatalf("session state=%s want error", s.state)
+	}
+	path := filepath.Join(s.dir, "observation", "failure.json")
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("watchdog failure.json missing: %v", err)
+	}
+	var row map[string]any
+	if err := json.Unmarshal(raw, &row); err != nil {
+		t.Fatalf("failure.json invalid: %v", err)
+	}
+	reason, _ := row["failure_reason"].(string)
+	if !strings.Contains(reason, "watchdog") {
+		t.Fatalf("failure_reason=%q", reason)
 	}
 }
 

@@ -598,6 +598,9 @@ func (m *Manager) failReady(s *session, reason string, detail ...string) {
 	if s.message == "" {
 		s.message = s.readyErr.Error()
 	}
+	if s.state != "stopping" && s.state != "closed" {
+		s.state = "error"
+	}
 	s.readyFailOnce.Do(func() { close(s.readyFailed) })
 	m.notifyReadyLocked(s)
 	// The first failure is the incident. Persist it immediately, before a
@@ -762,7 +765,14 @@ func (m *Manager) WaitReady(ctx context.Context, id string) (any, error) {
 		case <-failed:
 		case <-changed:
 		case <-ctx.Done():
-			return nil, &ReadyFailure{Reason: "watchdog", Detail: ctx.Err().Error(), PreloadSlot: slot}
+			m.mu.Lock()
+			m.failReady(s, "watchdog", ctx.Err().Error())
+			err := s.readyErr
+			m.mu.Unlock()
+			if err == nil {
+				err = &ReadyFailure{Reason: "watchdog", Detail: ctx.Err().Error(), PreloadSlot: slot}
+			}
+			return nil, err
 		}
 	}
 }

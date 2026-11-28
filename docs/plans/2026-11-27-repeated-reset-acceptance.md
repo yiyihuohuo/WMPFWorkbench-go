@@ -382,3 +382,45 @@ POST /console/shutdown      -> HTTP 200, port closed after exit
 `launch_mode_hint=direct`, `package_source=local_index`. No raw account
 identifiers or credentials are reproduced here.
 
+## Real mini-program launch test
+
+A real launch was then performed through MCP `launch`:
+
+```text
+appid        = wx4a4c2f53af93d4d3
+seconds      = 0
+hide_window  = false
+wait_ready   = true
+elapsed      = 100.03s
+result       = watchdog: context deadline exceeded: preload=preload-5
+isError      = true
+session_id   = d2e815752926b24e
+```
+
+This was a real runtime launch, not a mocked call. The event stream showed:
+
+```text
+GetUserInfo/AutoLogin succeeded
+ilink.Login.result error_code=0, logged_in=1
+runtime.Construct / runtime.StartPreload with preload-5
+devtools.Start on preload-5
+ilink.LaunchApplet
+host.applet_event code=301
+heartbeats continued until the watchdog
+```
+
+`runtime_status` after the watchdog showed the real session existed with
+`login_ok=true`, `worker_started=true`, `preload_slot=preload-5`, a CDP websocket
+and a CDP page target, but `app_start_seen=false` and `setup_seen=false`. The
+old code also left the session in `state=running` and did not persist a
+`failure.json` for watchdog timeouts.
+
+The watchdog path was fixed to call `failReady`, persist `failure.json`, set
+`state=error`, and return the stored `ReadyFailure`. The test session was
+closed cleanly through `close_runtime` with `cleanup_verified=true`; MCP was
+shut down through `/console/shutdown` and the port closed.
+
+This proves the real launch path was exercised, but the target app did not reach
+the ready/setup phase within the watchdog window; the remaining launch failure
+is at the applet setup/CDP context stage after successful login and preload.
+
