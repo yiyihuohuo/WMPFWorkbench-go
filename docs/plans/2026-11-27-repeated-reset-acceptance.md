@@ -300,3 +300,47 @@ The stale ZIP contains only `failure.json`, `ui-log.txt`, `manifest.json`,
 `README.txt` and `missing.txt`; the missing event/worker files are now listed
 rather than aborting export. It is not sufficient to analyze the fresh
 `host.Reset`, so the user needs to export again with the rebuilt package.
+
+## Comprehensive audit remediation
+
+A four-track audit covered startup failures, diagnostics export, sidecar update
+safety, and GUI/account UX. The following user-visible defects were fixed
+together rather than one at a time:
+
+- `failReady` now persists a `ReadyFailure` immediately. Repeated reset,
+  bad preload, host timeout, watchdog and other soft failures all write
+  `failure.json`; the first cause wins and later events cannot overwrite it.
+- `failure.json` now carries `failure_reason`, `phase`, `reset_count`,
+  `recent_reset_count`, `host_pid`, `initial_host_pid`, `worker_pid`,
+  `host_rebind_seen` and `last_events`. Writes are atomic and write errors are
+  logged.
+- Host rebuild events (`ReLaunch/InitCore/ReBind/LaunchAndBind`) are treated as
+  progress, so phase is no longer misreported as `worker_started` with advice
+  to reset runtime data. Host PID is updated on rebuild while the initial PID
+  is preserved. Reset wording now states the real 30s/10s windows.
+- Diagnostics export keeps a tail of oversized UI logs and records omissions;
+  manifest lists all generated files; `failed_at` accepts multiple formats and
+  resolves same-second ties; attempt-2 worker/metadata files are collected;
+  export is serialized and writes the ZIP atomically; redaction covers
+  camelCase keys, unionid/sessionid/sign and multi-value cookies.
+- Sidecar lifetime is decoupled from a single export task context; readiness
+  checks HTTP identity rather than TCP only; old process termination rechecks
+  the PID/path immediately before kill; netstat uses the absolute System32
+  path; unknown port owners are no longer called "old wxapkg-dump"; OPTIONS
+  probes carry the admin key and reject generic CORS 2xx; version fallback can
+  find versioned binaries even when the env path is stale; MCP no longer
+  silently ignores bundle extraction failures; session IDs used in temp paths
+  are whitelisted.
+- Login classification recognizes HTTP 405 and inconclusive probes, and no
+  longer echoes raw backend errors into UI state.
+- GUI fixes cover duplicate log suppression, clipboard failure reporting,
+  per-ref avatar lookup, launch error reasons in the UI, real log clearing,
+  QR generation races, export field polling overwrite, filtered search counts,
+  export polling timeout, delete-account false results, status colors,
+  `bundle_error` visibility, debugger fallback reporting and dynamic scan
+  error display.
+
+Residual risks documented by the audit: PID reuse cannot be eliminated
+entirely without a kernel-level handle-based kill; the frontend `dist` changes
+must be preserved if the frontend source is later rebuilt; export polling
+timeout stops UI polling but does not cancel a stuck backend task.
