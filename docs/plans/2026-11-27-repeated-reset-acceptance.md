@@ -433,3 +433,56 @@ sha256   = d37b5affc5cae34f6b01e4cb31bb09e3b367758508568e333c0a25b702b37c6c
 source   = be8d137
 ```
 
+## Second real launch test
+
+The rebuilt `1.0.5` binary was started again over MCP HTTP and two real
+launches were performed.
+
+Known-good app:
+
+```text
+appid    = wx141bfb9b73c970a9
+elapsed  = 33.43s
+state    = debug_ready
+result   = app_start_seen=true, setup_seen=true, cdp_ok=true,
+           login_ok=true, launch_confirmed=true
+session  = ac5d1ef71b173aad
+```
+
+CDP attach and evaluation succeeded:
+
+```text
+url    = https://servicewechat.com/wx141bfb9b73c970a9/517/page-frame.html
+title  = GameIndex
+iframes = 2
+body   = 羊了个羊：星球
+```
+
+The previously failing app was launched again:
+
+```text
+appid    = wx4a4c2f53af93d4d3
+elapsed  = 100.03s
+result   = watchdog: context deadline exceeded: preload=preload-5
+session  = e1a6c46ab8bcdff3
+state    = error
+ready_failure = watchdog
+```
+
+This time the watchdog failure was persisted correctly:
+
+```text
+failure_reason    = watchdog
+phase             = login_ready
+host_rebind_seen  = true
+initial_host_pid  = 18776
+host_pid          = 31112
+last_events       = browser.Heartbeat.ack, bridge.stats, host.CheckHeartbeat, ...
+events.jsonl      = 10678 bytes after session close
+```
+
+The known-good session was closed with `cleanup_verified=true`. MCP was shut
+down through `/console/shutdown`. This retest proves both branches: a full
+successful mini-program launch with a live CDP page, and a watchdog failure
+that now leaves an inspectable failure record.
+
