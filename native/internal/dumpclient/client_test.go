@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"os/exec"
 	"testing"
 )
 
@@ -122,6 +124,60 @@ func TestParseProgressRealEvents(t *testing.T) {
 			t.Fatalf("parse(%q) = %+v, want stage=%s done=%d total=%d module=%s",
 				c.msg, p, c.stage, c.done, c.total, c.module)
 		}
+	}
+}
+
+func TestReachableRequiresHTTPEnvelope(t *testing.T) {
+	healthy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(envOK("health", map[string]any{}))
+	}))
+	defer healthy.Close()
+	if !New(Options{BaseURL: healthy.URL}).Reachable(context.Background()) {
+		t.Fatal("valid envelope should be reachable")
+	}
+
+	foreign := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("foreign-service"))
+	}))
+	defer foreign.Close()
+	if New(Options{BaseURL: foreign.URL}).Reachable(context.Background()) {
+		t.Fatal("bare TCP or foreign HTTP reply must not count as reachable")
+	}
+
+	failed := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(envErr("not_ready", "starting"))
+	}))
+	defer failed.Close()
+	if New(Options{BaseURL: failed.URL}).Reachable(context.Background()) {
+		t.Fatal("envelope with ok=false must not count as reachable")
+	}
+}
+
+func TestStartLockedDoesNotBindCallerContext(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(envOK("health", map[string]any{}))
+	}))
+	defer srv.Close()
+	oldStart := startCommand
+	defer func() { startCommand = oldStart }()
+	var captured context.Context
+	startCommand = func(ctx context.Context, name string, args ...string) *exec.Cmd {
+		captured = ctx
+		return exec.Command(os.Args[0], "-test.run=^$")
+	}
+	caller, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	c := New(Options{BaseURL: srv.URL, ExePath: "fake-sidecar"})
+	if err := c.startLocked(caller); err != nil {
+		t.Fatalf("startLocked: %v", err)
+	}
+	defer c.Stop()
+	cancel()
+	if captured == nil || captured == caller {
+		t.Fatal("sidecar must be started with a long-lived context, not the caller's")
+	}
+	if captured.Err() != nil {
+		t.Fatal("sidecar context must survive caller cancellation")
 	}
 }
 

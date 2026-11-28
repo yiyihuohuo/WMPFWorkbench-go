@@ -4,6 +4,7 @@ package dumpclient
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -11,8 +12,17 @@ import (
 	"golang.org/x/sys/windows"
 )
 
+// netstatExecutable avoids PATH hijacking by pinning the Windows system binary.
+func netstatExecutable() string {
+	root := strings.TrimSpace(os.Getenv("SystemRoot"))
+	if root == "" || !filepath.IsAbs(root) {
+		root = `C:\Windows`
+	}
+	return filepath.Join(root, "System32", "netstat.exe")
+}
+
 func queryListenerProcess(port int) (listenerProcess, error) {
-	out, err := exec.Command("netstat", "-ano", "-p", "tcp").Output()
+	out, err := exec.Command(netstatExecutable(), "-ano", "-p", "tcp").Output()
 	if err != nil {
 		return listenerProcess{}, fmt.Errorf("netstat 失败：%w", err)
 	}
@@ -26,8 +36,8 @@ func queryListenerProcess(port int) (listenerProcess, error) {
 		if err != nil {
 			continue
 		}
-		info := listenerProcess{PID: pid, Path: path}
-		if strings.EqualFold(filepath.Base(path), exeName) {
+		info := listenerProcess{PID: pid, Path: path, IsSidecar: strings.EqualFold(filepath.Base(path), exeName)}
+		if info.IsSidecar {
 			return info, nil
 		}
 		if fallback.PID == 0 {

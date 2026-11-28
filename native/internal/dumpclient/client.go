@@ -59,6 +59,13 @@ type Options struct {
 	Logf       func(string, ...any)
 }
 
+// startCommand is an indirection for tests. The sidecar is a long-lived
+// service: it must never be tied to the context of the tool call that first
+// started it, so startLocked always passes a deliberately long-lived context.
+var startCommand = func(ctx context.Context, name string, args ...string) *exec.Cmd {
+	return exec.CommandContext(ctx, name, args...)
+}
+
 func withEnv(env []string, key, value string) []string {
 	if value == "" {
 		return env
@@ -178,21 +185,79 @@ func New(o Options) *Client {
 	o.BaseURL = strings.TrimRight(o.BaseURL, "/")
 	c := &Client{opts: o, http: &http.Client{Timeout: 15 * time.Second}}
 	if o.ExePath == "" {
-		c.opts.ExePath, c.searched = resolveExe()
+		c.opts.ExePath, c.searched = resolveExe(inferDataDir(o.ManagedDir))
 	}
 	return c
 }
 
+// inferDataDir maps the managed <data>/bin directory back to <data>.
+func inferDataDir(managedDir string) string {
+	cleaned := filepath.Clean(strings.TrimSpace(managedDir))
+	if cleaned == "" || cleaned == "." {
+		return ""
+	}
+	if strings.EqualFold(filepath.Base(cleaned), "bin") {
+		return filepath.Dir(cleaned)
+	}
+	return cleaned
+}
+
+// isExistingFile rejects directories, dangling links and empty paths: an env
+// override that points nowhere must not hide a healthy extracted copy.
+func isExistingFile(path string) bool {
+	if strings.TrimSpace(path) == "" {
+		return false
+	}
+	st, err := os.Stat(path)
+	return err == nil && !st.IsDir()
+}
+
+// newestVersionExe picks the most recently written wxapkg-dump.exe under
+// <data>/bin/versions/*/; an older env override is deliberately not trusted.
+func newestVersionExe(versionsDir string) string {
+	entries, err := os.ReadDir(versionsDir)
+	if err != nil {
+		return ""
+	}
+	bestPath, bestMod := "", time.Time{}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		path := filepath.Join(versionsDir, entry.Name(), exeName)
+		st, err := os.Stat(path)
+		if err != nil || st.IsDir() {
+			continue
+		}
+		if bestPath == "" || st.ModTime().After(bestMod) || (st.ModTime().Equal(bestMod) && path > bestPath) {
+			bestPath, bestMod = path, st.ModTime()
+		}
+	}
+	return bestPath
+}
+
 // resolveExe locates the sidecar binary without any hardcoded absolute path.
-// Order: WXAPKG_DUMP_EXE (set by bundle.Apply for the extracted copy), then a
-// few conventional locations relative to the running executable and CWD.
-// Returns the first existing candidate, or exeName with the list of places that
-// were checked so Ensure can explain how to fix it.
-func resolveExe() (string, []string) {
+// Order: a valid WXAPKG_DUMP_EXE, the newest <data>/bin/versions/*/wxapkg-dump.exe,
+// then conventional locations relative to the executable and CWD.
+// Returns the first existing file, or exeName with the list of places checked.
+func resolveExe(extraDataDirs ...string) (string, []string) {
+	var searched []string
 	if v := strings.TrimSpace(os.Getenv("WXAPKG_DUMP_EXE")); v != "" {
-		return v, nil
+		if isExistingFile(v) {
+			return v, nil
+		}
+		searched = append(searched, v)
 	}
 	var candidates []string
+	dataDirs := make([]string, 0, 3+len(extraDataDirs))
+	for _, dir := range extraDataDirs {
+		if strings.TrimSpace(dir) != "" {
+			dataDirs = append(dataDirs, dir)
+		}
+	}
+	if home := strings.TrimSpace(os.Getenv("WMPF_HOME")); home != "" {
+		dataDirs = append(dataDirs, filepath.Join(home, "data"))
+	}
 	if self, err := os.Executable(); err == nil {
 		dir := filepath.Dir(self)
 		candidates = append(candidates,
@@ -200,19 +265,29 @@ func resolveExe() (string, []string) {
 			filepath.Join(dir, "bin", exeName),
 			filepath.Join(dir, "data", "bin", exeName),
 		)
+		dataDirs = append(dataDirs, filepath.Join(dir, "data"))
 	}
 	if wd, err := os.Getwd(); err == nil {
 		candidates = append(candidates,
 			filepath.Join(wd, exeName),
 			filepath.Join(wd, "bin", exeName),
 		)
+		dataDirs = append(dataDirs, filepath.Join(wd, "data"))
+	}
+	for _, dataDir := range dataDirs {
+		versionsDir := filepath.Join(dataDir, "bin", "versions")
+		if found := newestVersionExe(versionsDir); found != "" {
+			return found, nil
+		}
+		searched = append(searched, filepath.Join(versionsDir, "*", exeName))
 	}
 	for _, candidate := range candidates {
-		if st, err := os.Stat(candidate); err == nil && !st.IsDir() {
+		if isExistingFile(candidate) {
 			return candidate, nil
 		}
+		searched = append(searched, candidate)
 	}
-	return exeName, candidates
+	return exeName, searched
 }
 
 func (c *Client) logf(format string, args ...any) {
@@ -237,15 +312,37 @@ func (c *Client) port() int {
 	return 80
 }
 
-// Reachable reports whether the sidecar's HTTP API is up.
+// Reachable reports whether the sidecar's HTTP API actually answers with a
+// valid envelope. A bare TCP listener or a foreign service's 2xx CORS reply is
+// not evidence that wxapkg-dump is usable.
 func (c *Client) Reachable(ctx context.Context) bool {
-	d := net.Dialer{Timeout: 500 * time.Millisecond}
-	conn, err := d.DialContext(ctx, "tcp", net.JoinHostPort(c.baseHost(), strconv.Itoa(c.port())))
+	return c.probeHealthy(ctx, healthPath) || c.probeHealthy(ctx, statusPath)
+}
+
+func (c *Client) probeHealthy(ctx context.Context, path string) bool {
+	probeCtx, cancel := context.WithTimeout(ctx, 1200*time.Millisecond)
+	defer cancel()
+	req, err := http.NewRequestWithContext(probeCtx, http.MethodGet, c.opts.BaseURL+path, nil)
 	if err != nil {
 		return false
 	}
-	conn.Close()
-	return true
+	if c.opts.AdminKey != "" {
+		req.Header.Set("x-admin-key", c.opts.AdminKey)
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return false
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<16))
+	if err != nil {
+		return false
+	}
+	var env Envelope
+	return json.Unmarshal(body, &env) == nil && env.OK
 }
 
 // Ensure starts the sidecar process when AutoStart is set and it is not up.
@@ -320,7 +417,7 @@ func (c *Client) keepAliveCompatible(ctx context.Context) (bool, error) {
 func (c *Client) ensureExe() error {
 	// Re-resolve once in case the bundle extracted the helper after New().
 	if _, err := os.Stat(c.opts.ExePath); err != nil {
-		if resolved, searched := resolveExe(); resolved != c.opts.ExePath {
+		if resolved, searched := resolveExe(inferDataDir(c.opts.ManagedDir)); resolved != c.opts.ExePath {
 			c.opts.ExePath, c.searched = resolved, searched
 		}
 	}
@@ -339,7 +436,8 @@ func (c *Client) startLocked(ctx context.Context) error {
 	if c.opts.Workspace != "" {
 		args = append(args, "--workspace", c.opts.Workspace)
 	}
-	cmd := exec.CommandContext(ctx, c.opts.ExePath, args...)
+	// The sidecar outlives the call that started it: never bind cmd to ctx.
+	cmd := startCommand(context.Background(), c.opts.ExePath, args...)
 	cmd.Env = withEnv(os.Environ(), "WXAPKG_REMOTE_HOME", c.opts.RemoteHome)
 	// Detached from GUI console on Windows: CREATE_NO_WINDOW (0x08000000).
 	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: 0x08000000}
@@ -348,21 +446,28 @@ func (c *Client) startLocked(ctx context.Context) error {
 	}
 	c.cmd = cmd
 	c.logf("wxapkg-dump sidecar 已启动：%s", c.opts.BaseURL)
-	// Wait for the port to come up, bounded and event-driven (no fixed sleeps).
-	deadline := time.NewTimer(8 * time.Second)
-	defer deadline.Stop()
+	// ctx only bounds how long the caller waits for readiness.
+	waitCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
+	defer cancel()
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 	for {
-		if c.Reachable(ctx) {
+		if c.Reachable(waitCtx) {
 			return nil
 		}
 		select {
 		case <-ticker.C:
-		case <-deadline.C:
+		case <-waitCtx.Done():
+			// Reclaim only the process launched above; do not treat a ready
+			// sidecar as owned by the caller's context.
+			_ = cmd.Process.Kill()
+			if c.cmd == cmd {
+				c.cmd = nil
+			}
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return ctxErr
+			}
 			return errors.New("wxapkg-dump server 启动超时")
-		case <-ctx.Done():
-			return ctx.Err()
 		}
 	}
 }

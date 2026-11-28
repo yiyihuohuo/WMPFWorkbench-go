@@ -119,9 +119,15 @@ func ensureVersionedFile(dir, name string, raw []byte) (string, error) {
 	return dst, nil
 }
 
-// cleanupVersions keeps the active version and one previous version for
-// rollback. Locked directories are left alone; a later launch retries cleanup.
+// cleanupVersions removes stale version directories. An entry is managed only
+// if its resolved path stays inside the resolved root: external junctions and
+// symlinks are left untouched. There is no rollback consumer, so no previous
+// copy is retained; locked directories are retried on a later launch.
 func cleanupVersions(root, current string) {
+	rootReal, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return
+	}
 	entries, err := os.ReadDir(root)
 	if err != nil {
 		return
@@ -135,6 +141,10 @@ func cleanupVersions(root, current string) {
 		if !entry.IsDir() || entry.Name() == current {
 			continue
 		}
+		resolved, err := filepath.EvalSymlinks(filepath.Join(root, entry.Name()))
+		if err != nil || !pathWithin(rootReal, resolved) {
+			continue
+		}
 		info, err := entry.Info()
 		if err != nil {
 			continue
@@ -142,9 +152,17 @@ func cleanupVersions(root, current string) {
 		dirs = append(dirs, versionDir{name: entry.Name(), mod: info.ModTime()})
 	}
 	sort.Slice(dirs, func(i, j int) bool { return dirs[i].mod.After(dirs[j].mod) })
-	for i := 1; i < len(dirs); i++ {
-		_ = os.RemoveAll(filepath.Join(root, dirs[i].name))
+	for _, dir := range dirs {
+		_ = os.RemoveAll(filepath.Join(root, dir.name))
 	}
+}
+
+func pathWithin(root, path string) bool {
+	rel, err := filepath.Rel(root, path)
+	if err != nil || filepath.IsAbs(rel) {
+		return false
+	}
+	return rel != "." && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 // Apply sets the environment variables consumed by hostruntime and wxapkg.

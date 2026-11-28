@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -36,6 +37,14 @@ type Runtime interface {
 	CloseSession(context.Context, string) (any, error)
 	Sessions() []map[string]any
 	Close()
+}
+
+// session IDs are only ever used as a filename fragment. Deny separators,
+// drive letters and dot-only names so a caller cannot reach outside TempDir.
+var sessionIDPattern = regexp.MustCompile(`^[A-Za-z0-9._@-]{1,128}$`)
+
+func validSessionID(id string) bool {
+	return sessionIDPattern.MatchString(id) && id != "." && id != ".."
 }
 
 func recoverableReadyFailure(reason string) bool {
@@ -187,7 +196,7 @@ func (s *Service) markTwoHop(sessionID string, fn func(*twoHopSession)) {
 }
 
 func (s *Service) unhideSession(sessionID string) {
-	if sessionID == "" {
+	if !validSessionID(sessionID) {
 		return
 	}
 	path := filepath.Join(os.TempDir(), "wmpf-unhide-"+sessionID+".flag")
@@ -198,7 +207,7 @@ func (s *Service) unhideSession(sessionID string) {
 // for the launcher appid only. The host watches this file and never closes the
 // active target appid.
 func (s *Service) closeBridgeSession(sessionID, launcherAppID string) {
-	if sessionID == "" || launcherAppID == "" {
+	if !validSessionID(sessionID) || launcherAppID == "" {
 		return
 	}
 	path := filepath.Join(os.TempDir(), "wmpf-close-bridge-"+sessionID+".txt")
@@ -738,10 +747,13 @@ func (s *Service) Call(ctx context.Context, name string, args map[string]any) (a
 		}
 		return withReason(ready, err)
 	case "close_runtime":
-		if s.Runtime == nil {
-			return map[string]any{"ok": false, "session_id": str(args, "session_id"), "state": "unknown", "reason": "找不到此会话"}, nil
-		}
 		sid := str(args, "session_id")
+		if !validSessionID(sid) {
+			return map[string]any{"ok": false, "session_id": "", "state": "unknown", "reason": "session_id 无效"}, nil
+		}
+		if s.Runtime == nil {
+			return map[string]any{"ok": false, "session_id": sid, "state": "unknown", "reason": "找不到此会话"}, nil
+		}
 		_ = os.Remove(filepath.Join(os.TempDir(), "wmpf-unhide-"+sid+".flag"))
 		_ = os.Remove(filepath.Join(os.TempDir(), "wmpf-close-bridge-"+sid+".txt"))
 		s.mu.Lock()

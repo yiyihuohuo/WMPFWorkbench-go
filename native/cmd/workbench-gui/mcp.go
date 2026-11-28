@@ -37,9 +37,11 @@ func runMCPWithContext(ctx context.Context, root, transport string, port int, cf
 	if err != nil {
 		return err
 	}
-	if helpers, err := bundle.Ensure(p.Data); err == nil {
-		bundle.Apply(helpers)
+	helpers, err := bundle.Ensure(p.Data)
+	if err != nil {
+		return fmt.Errorf("释放内置辅助程序失败：%w", err)
 	}
+	bundle.Apply(helpers)
 	service := core.New(p)
 	defer service.Close()
 	if cfgPath != "" {

@@ -45,7 +45,7 @@ func TestEnsureVersionedBundleDoesNotOverwriteLegacy(t *testing.T) {
 	}
 }
 
-func TestCleanupVersionsKeepsCurrentAndOnePrevious(t *testing.T) {
+func TestCleanupVersionsKeepsOnlyCurrent(t *testing.T) {
 	root := t.TempDir()
 	names := []string{"oldest", "previous", "current"}
 	now := time.Now()
@@ -63,10 +63,45 @@ func TestCleanupVersionsKeepsCurrentAndOnePrevious(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(root, "current")); err != nil {
 		t.Fatal("current version removed")
 	}
-	if _, err := os.Stat(filepath.Join(root, "previous")); err != nil {
-		t.Fatal("previous version should be kept for rollback")
+	for _, stale := range []string{"previous", "oldest"} {
+		if _, err := os.Stat(filepath.Join(root, stale)); !os.IsNotExist(err) {
+			t.Fatalf("stale version %s should be removed (err=%v)", stale, err)
+		}
 	}
-	if _, err := os.Stat(filepath.Join(root, "oldest")); !os.IsNotExist(err) {
-		t.Fatal("oldest version should be removed")
+}
+
+func TestCleanupVersionsLeavesExternalSymlinkUntouched(t *testing.T) {
+	root := t.TempDir()
+	external := t.TempDir()
+	sentinel := filepath.Join(external, "keep.txt")
+	if err := os.WriteFile(sentinel, []byte("external"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "external-link")
+	if err := os.Symlink(external, link); err != nil {
+		t.Skipf("directory symlinks unavailable: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "current"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	cleanupVersions(root, "current")
+	if _, err := os.Stat(sentinel); err != nil {
+		t.Fatalf("external target was removed: %v", err)
+	}
+	if _, err := os.Lstat(link); err != nil {
+		t.Fatalf("external link was removed: %v", err)
+	}
+}
+
+func TestPathWithinRejectsOutside(t *testing.T) {
+	root := t.TempDir()
+	if !pathWithin(root, filepath.Join(root, "bin", "versions")) {
+		t.Fatal("child path must be inside root")
+	}
+	if pathWithin(root, t.TempDir()) {
+		t.Fatal("unrelated temp dir must be outside root")
+	}
+	if pathWithin(root, filepath.Dir(root)) {
+		t.Fatal("parent path must be outside root")
 	}
 }
