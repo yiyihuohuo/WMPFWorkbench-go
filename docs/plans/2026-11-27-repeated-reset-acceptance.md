@@ -424,3 +424,12 @@ This proves the real launch path was exercised, but the target app did not reach
 the ready/setup phase within the watchdog window; the remaining launch failure
 is at the applet setup/CDP context stage after successful login and preload.
 
+Final watchdog-fix asset:
+
+```text
+asset id = 803457145
+size     = 67182117
+sha256   = d37b5affc5cae34f6b01e4cb31bb09e3b367758508568e333c0a25b702b37c6c
+source   = be8d137
+```
+
