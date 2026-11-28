@@ -433,6 +433,52 @@ sha256   = d37b5affc5cae34f6b01e4cb31bb09e3b367758508568e333c0a25b702b37c6c
 source   = be8d137
 ```
 
+## Two-hop native hook regression
+
+The two-hop app was failing after a portability change:
+
+- `5a2a0c0 fix(portability): use system temp dir for jump flags` changed the Go
+  side from `C:\Windows\Temp\...` to `os.TempDir()`.
+- The Frida hook source still read `C:\Windows\Temp\wmpf-jump-target-appid.txt`
+  and the worker no longer passed `WMPF_TEMP_DIR` / the target AppID to the
+  spawned host.
+- Result: the two-hop launcher opened but the native `navigateToMiniProgram`
+  hook had no target, so the jump never happened.
+
+Fix:
+
+- `launch` arms the native jump hook before the bridge host is spawned for
+  unlisted/two-hop targets.
+- The worker passes `WMPF_TEMP_DIR` into the host process environment.
+- The Frida hook reads jump flags from `WMPF_TEMP_DIR`, with the old hardcoded
+  path only as fallback.
+
+Retest against the two-hop target:
+
+```text
+get_app_detail: listed=false, launch_mode_hint=two_hop, package_bytes=4204639
+launch elapsed = 32.75s
+state          = debug_ready
+launch_mode    = two_hop
+jumped         = true
+active_appid   = requested target
+bridge_hidden  = true
+bridge_closed  = true
+setup_seen     = true
+login_ok       = true
+```
+
+The old hook mismatch was the regression; two-hop launch now passes again.
+
+Final two-hop-fix asset:
+
+```text
+asset id = 803674019
+size     = 67183069
+sha256   = 8e02f9b1acf6de5ca02b1564c5c0c983e1e2f6512665ed5021361d9328d03161
+source   = b9678e8
+```
+
 ## Second real launch test
 
 The rebuilt `1.0.5` binary was started again over MCP HTTP and two real
