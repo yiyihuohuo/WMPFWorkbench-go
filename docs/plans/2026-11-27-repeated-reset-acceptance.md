@@ -344,3 +344,13 @@ Residual risks documented by the audit: PID reuse cannot be eliminated
 entirely without a kernel-level handle-based kill; the frontend `dist` changes
 must be preserved if the frontend source is later rebuilt; export polling
 timeout stops UI polling but does not cancel a stuck backend task.
+
+Final asset for the comprehensive remediation:
+
+```text
+asset id = 803398018
+size     = 67181777
+sha256   = 21d5dc93b414400bd1b9f50b80713012f44caee0458ec9a25ee2c01d2dbd7432
+digest   = sha256:21d5dc93b414400bd1b9f50b80713012f44caee0458ec9a25ee2c01d2dbd7432
+source   = 5e62be1
+```
